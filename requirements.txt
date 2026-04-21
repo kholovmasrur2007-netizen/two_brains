@@ -1,0 +1,8 @@
+pydantic>=2.0,<3.0
+python-dotenv>=1.0
+rich>=13.0
+pytest>=7.0
+
+# Optional LLM SDK. Imported lazily by app/llm/anthropic_client.py, so it is
+# only required when PLANNER_PROVIDER=anthropic or CRITIC_PROVIDER=anthropic.
+anthropic>=0.40.0
