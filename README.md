@@ -87,7 +87,7 @@ python -m app.main "Ship feature X" && deploy.sh || echo "plan blocked"
 pytest -q
 ```
 
-Expected: **61 tests pass**. None hit the network.
+Expected: **70 tests pass**. None hit the network.
 
 ## Using a real LLM
 
@@ -173,14 +173,19 @@ TaskInput ─▶ Planner.create_plan ─▶ PlanOutput
                                        │
                                        ▼
                                 Critic.review_plan ─▶ CritiqueOutput
-                                                         │
-                                                         ▼
-                                                    FinalResult
-                                                 (ready_for_execution,
-                                                  final_recommendation)
+                                       ▲                 │
+                                       │                 ▼
+             Planner.revise_plan ◀─────┘          accepted? yes ──▶ FinalResult
+                    (if planner is a RevisingPlanner,
+                     loops up to MAX_ITERATIONS)
 ```
 
-Every artefact is saved to the `MemoryStore` in the order produced.
+* Deterministic `PlannerBrain` doesn't implement `revise_plan`, so it
+  runs exactly once (the critique is informative but can't reshape the plan).
+* `LLMPlannerBrain` does implement it — on rejection it gets another
+  turn, with the previous plan and the critique included in the prompt.
+* The loop stops on `"accepted"` or at `MAX_ITERATIONS` (default 3).
+* Every iteration's artefacts are saved to `MemoryStore` in order (latest wins).
 
 ### How ready_for_execution is decided
 
@@ -290,9 +295,9 @@ All optional; defaults are sensible for local use.
 | Brain 2 (Critic, LLM path)           | implemented + fallback    |
 | `MockLLMClient`                      | implemented               |
 | `AnthropicClient`                    | implemented               |
-| Orchestrator (single pass)           | implemented               |
+| Orchestrator + iterative revise loop | implemented               |
 | Memory (in-process + JSON)           | implemented               |
 | CLI (run/show/history/clear/demo)    | implemented               |
-| Iterative revise loop                | not yet                   |
+| GitHub Actions CI                    | implemented               |
 | Execution agent                      | not yet                   |
 | Other LLM providers (OpenAI, local)  | contract ready, not wired |
