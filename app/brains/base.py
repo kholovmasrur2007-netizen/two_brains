@@ -34,3 +34,22 @@ class Critic(Protocol):
     def review_plan(self, plan: PlanOutput) -> CritiqueOutput:
         """Return structured feedback on the given plan."""
         ...
+
+
+@runtime_checkable
+class RevisingPlanner(Planner, Protocol):
+    """A Planner that can also revise a plan given a critique.
+
+    The orchestrator checks for this Protocol to decide whether to run
+    the iterative plan -> critique -> revise loop. A planner that only
+    implements ``create_plan`` gets exactly one pass.
+    """
+
+    def revise_plan(
+        self,
+        task: TaskInput,
+        prior_plan: PlanOutput,
+        critique: CritiqueOutput,
+    ) -> PlanOutput:
+        """Return an improved plan that addresses the critique."""
+        ...

@@ -30,4 +30,9 @@ class FinalResult(BaseModel):
         False,
         description="True only when score is high enough and no blockers exist.",
     )
+    iterations: int = Field(
+        1,
+        ge=1,
+        description="Number of plan/critique cycles executed (1 = no revision happened).",
+    )
     # TODO: attach execution artefacts once an execution agent runs the plan.

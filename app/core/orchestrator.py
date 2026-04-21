@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from app import config
 from app.brains import Critic, Planner, build_critic, build_planner
+from app.brains.base import RevisingPlanner
 from app.core.logger import get_logger
 from app.memory.store import MemoryStore
 from app.types import CritiqueOutput, FinalResult, TaskInput
@@ -51,10 +52,20 @@ class TwoBrainOrchestrator:
         self._log = get_logger(__name__)
 
     def run(self, task: TaskInput) -> FinalResult:
-        """Run the pipeline end-to-end for one task."""
+        """Run the pipeline end-to-end for one task.
+
+        Flow:
+            1. Planner.create_plan -> Critic.review_plan.
+            2. If the planner also implements ``RevisingPlanner`` and the
+               critique is not already "accepted", loop through
+               ``revise_plan -> review_plan`` up to ``max_iterations`` times
+               or until the critique accepts the plan, whichever comes first.
+            3. Wrap the final plan + critique in a FinalResult.
+        """
         self._log.info("task received id=%s prompt=%r", task.id, task.prompt)
         self.memory.save_task(task)
 
+        # ── Iteration 1: initial plan + critique ─────────────────────
         self._log.info("brain1: planning...")
         plan = self.planner.create_plan(task)
         self.memory.save_plan(plan)
@@ -71,6 +82,30 @@ class TwoBrainOrchestrator:
             critique.overall_score, critique.final_judgement,
         )
 
+        iterations = 1
+
+        # ── Iterations 2..N: revise while the planner supports it ───
+        can_revise = isinstance(self.planner, RevisingPlanner)
+        max_iter = max(1, config.settings.max_iterations)
+
+        while (
+            can_revise
+            and critique.final_judgement != "accepted"
+            and iterations < max_iter
+        ):
+            next_iter = iterations + 1
+            self._log.info("iteration %d/%d: revising plan...", next_iter, max_iter)
+            plan = self.planner.revise_plan(task, plan, critique)
+            self.memory.save_plan(plan)
+            critique = self.critic.review_plan(plan)
+            self.memory.save_critique(critique)
+            iterations = next_iter
+            self._log.info(
+                "iteration %d: score=%d judgement=%s",
+                iterations, critique.overall_score, critique.final_judgement,
+            )
+
+        # ── Assemble FinalResult ─────────────────────────────────────
         ready = self._is_ready(critique)
         recommendation = self._compose_recommendation(critique, ready)
 
@@ -81,12 +116,13 @@ class TwoBrainOrchestrator:
             critique=critique,
             final_recommendation=recommendation,
             ready_for_execution=ready,
+            iterations=iterations,
         )
         self.memory.save_result(result)
 
         self._log.info(
-            "pipeline done ready_for_execution=%s recommendation=%r",
-            ready, recommendation,
+            "pipeline done iterations=%d ready_for_execution=%s recommendation=%r",
+            iterations, ready, recommendation,
         )
         return result
 

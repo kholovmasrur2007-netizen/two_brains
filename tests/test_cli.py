@@ -27,6 +27,7 @@ def isolated_memory(monkeypatch, tmp_path: Path) -> Path:
         memory_path = str(path)
         planner_provider = "deterministic"
         critic_provider = "deterministic"
+        max_iterations = 3
 
     monkeypatch.setattr(app.config, "settings", _Stub())
     monkeypatch.setattr(main_module, "settings", _Stub())
@@ -118,6 +119,7 @@ def test_unknown_provider_surfaces_friendly_error(monkeypatch, capsys) -> None:
         memory_path = None
         planner_provider = "no-such-provider"
         critic_provider = "deterministic"
+        max_iterations = 3
     monkeypatch.setattr(app.config, "settings", _Stub())
     monkeypatch.setattr(main_module, "settings", _Stub())
 
