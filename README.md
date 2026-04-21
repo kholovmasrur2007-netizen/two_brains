@@ -1,5 +1,9 @@
 # two_brains
 
+[![tests](https://github.com/kholovmasrur2007-netizen/two_brains/actions/workflows/tests.yml/badge.svg)](https://github.com/kholovmasrur2007-netizen/two_brains/actions/workflows/tests.yml)
+[![python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 A small 2-brain pipeline that turns a plain-text task into a structured
 plan, critiques it, and returns a single "ready / not ready" verdict.
 
