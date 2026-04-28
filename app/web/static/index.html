@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>two_brains</title>
+<style>
+:root{
+  --bg:#0e1116; --panel:#161b22; --panel-2:#1f2632; --border:#30363d;
+  --fg:#e6edf3; --muted:#9aa6b2; --accent:#58a6ff;
+  --green:#3fb950; --yellow:#d29922; --red:#f85149; --magenta:#bc8cff;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,sans-serif;
+     background:var(--bg);color:var(--fg);line-height:1.45;}
+header{background:var(--panel);padding:1rem 1.5rem;border-bottom:1px solid var(--border);
+       display:flex;align-items:center;justify-content:space-between;}
+header h1{margin:0;font-size:1.25rem;letter-spacing:.5px;}
+header .sub{color:var(--muted);font-size:.85rem;}
+main{display:grid;grid-template-columns:1fr 1fr;gap:1rem;padding:1rem 1.5rem;
+     max-width:1400px;margin:0 auto;}
+section.panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;
+              padding:1rem;min-height:200px;}
+section.panel h2{margin:0 0 .75rem;font-size:.9rem;text-transform:uppercase;letter-spacing:1px;
+                 color:var(--muted);border-bottom:1px solid var(--border);padding-bottom:.5rem;}
+.controls{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;}
+.controls textarea{flex:1;min-width:300px;background:var(--panel-2);color:var(--fg);
+                   border:1px solid var(--border);border-radius:6px;padding:.5rem;
+                   font-family:inherit;resize:vertical;min-height:60px;}
+.controls input[type=text]{background:var(--panel-2);color:var(--fg);
+                           border:1px solid var(--border);border-radius:6px;padding:.5rem;
+                           font-family:inherit;width:200px;}
+.controls select{background:var(--panel-2);color:var(--fg);border:1px solid var(--border);
+                 border-radius:6px;padding:.4rem;}
+.controls label{font-size:.85rem;color:var(--muted);display:flex;align-items:center;gap:.25rem;}
+button{background:var(--accent);color:#0d1117;border:none;border-radius:6px;
+       padding:.5rem 1rem;font-weight:600;cursor:pointer;}
+button:hover{filter:brightness(1.1);}
+button:disabled{opacity:.5;cursor:not-allowed;}
+.status{font-size:.85rem;color:var(--muted);min-width:120px;}
+.events{max-height:200px;overflow-y:auto;font-family:'Consolas',monospace;font-size:.8rem;
+        background:#0a0d12;border:1px solid var(--border);border-radius:6px;padding:.5rem;}
+.event{padding:.15rem 0;}
+.event .ts{color:var(--muted);margin-right:.5rem;}
+.event .type{font-weight:600;color:var(--accent);margin-right:.5rem;}
+.brain-card{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;
+            padding:.5rem;background:var(--panel-2);border-radius:6px;}
+.brain-card .badge{font-size:.7rem;padding:.15rem .4rem;border-radius:3px;
+                   text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
+.badge.idle{background:#30363d;color:var(--muted);}
+.badge.running{background:var(--yellow);color:#000;animation:pulse 1s infinite;}
+.badge.done{background:var(--green);color:#000;}
+.badge.skipped{background:#6e7681;color:#fff;}
+.badge.error{background:var(--red);color:#fff;}
+@keyframes pulse{50%{opacity:.5;}}
+.section-content{font-size:.9rem;}
+.section-content .label{color:var(--muted);font-weight:600;font-size:.8rem;
+                        text-transform:uppercase;letter-spacing:.5px;margin-top:.75rem;}
+.section-content ol,.section-content ul{padding-left:1.25rem;margin:.25rem 0;}
+.section-content li{margin:.15rem 0;}
+.score{display:inline-block;padding:.15rem .5rem;border-radius:3px;font-weight:700;
+       background:var(--panel-2);}
+.judgement{display:inline-block;padding:.15rem .5rem;border-radius:3px;font-size:.85rem;
+           font-weight:600;text-transform:capitalize;}
+.judgement.accepted{background:var(--green);color:#000;}
+.judgement.needs_minor_revision,.judgement.needs_major_revision{background:var(--yellow);color:#000;}
+.judgement.rejected{background:var(--red);color:#fff;}
+.judgement.pending{background:#30363d;color:var(--muted);}
+.history-row{padding:.4rem;border-bottom:1px solid var(--border);font-size:.85rem;
+             display:grid;grid-template-columns:1fr auto auto;gap:.5rem;align-items:center;}
+.history-row .pid{color:var(--muted);font-family:monospace;font-size:.75rem;}
+.exec-step{padding:.4rem;background:var(--panel-2);border-radius:4px;margin-bottom:.3rem;
+           display:grid;grid-template-columns:auto 1fr auto;gap:.5rem;align-items:flex-start;}
+.exec-step .idx{color:var(--muted);font-family:monospace;}
+.exec-step .step-text{font-size:.85rem;}
+.exec-step .out{color:var(--muted);font-size:.8rem;display:block;margin-top:.15rem;}
+.exec-step .status-pill{font-size:.7rem;padding:.15rem .4rem;border-radius:3px;
+                        text-transform:uppercase;font-weight:600;}
+.status-pill.succeeded{background:var(--green);color:#000;}
+.status-pill.failed{background:var(--red);color:#fff;}
+.status-pill.skipped{background:#6e7681;color:#fff;}
+.recommendation{padding:.75rem;border-radius:6px;margin-top:.5rem;font-weight:600;}
+.recommendation.ready{background:rgba(63,185,80,.15);border:1px solid var(--green);color:var(--green);}
+.recommendation.not-ready{background:rgba(210,153,34,.15);border:1px solid var(--yellow);
+                          color:var(--yellow);}
+.empty{color:var(--muted);font-style:italic;font-size:.85rem;}
+.tool-call{padding:.5rem;background:var(--panel-2);border-radius:6px;
+           margin-bottom:.4rem;border-left:3px solid var(--accent);
+           font-family:'Consolas',monospace;font-size:.8rem;}
+.tool-call .head{display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem;}
+.tool-call .name{font-weight:700;color:var(--accent);}
+.tool-call .iter{color:var(--muted);font-size:.7rem;}
+.tool-call .args{color:var(--muted);white-space:pre-wrap;word-break:break-all;
+                 max-height:120px;overflow-y:auto;background:#0a0d12;
+                 padding:.3rem;border-radius:3px;}
+.tool-call.ok{border-left-color:var(--green);}
+.tool-call.error{border-left-color:var(--red);}
+.tool-call .result{margin-top:.3rem;color:var(--fg);
+                   white-space:pre-wrap;word-break:break-all;
+                   max-height:160px;overflow-y:auto;background:#0a0d12;
+                   padding:.3rem;border-radius:3px;font-size:.75rem;}
+.tool-call .result.error-text{color:var(--red);}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>two_brains</h1>
+    <div class="sub">Planner → Critic → Executor pipeline, live</div>
+  </div>
+  <div class="status" id="connection-status">disconnected</div>
+</header>
+
+<main>
+
+  <section class="panel controls">
+    <textarea id="prompt" placeholder="Task prompt — e.g. 'Migrate the users table to a new schema in production.'"></textarea>
+    <input type="text" id="constraints" placeholder="constraints, comma-separated">
+    <label>planner
+      <select id="planner"></select>
+    </label>
+    <label>critic
+      <select id="critic"></select>
+    </label>
+    <label>executor
+      <select id="executor"></select>
+    </label>
+    <label><input type="checkbox" id="execute"> run executor</label>
+    <button id="run-btn">Run</button>
+  </section>
+
+  <section class="panel" style="grid-column:1/-1">
+    <h2>pipeline</h2>
+    <div class="brain-card"><strong>Brain 1 — Planner</strong>
+      <span class="badge idle" id="b1-badge">idle</span></div>
+    <div class="brain-card"><strong>Brain 2 — Critic</strong>
+      <span class="badge idle" id="b2-badge">idle</span></div>
+    <div class="brain-card"><strong>Brain 3 — Executor</strong>
+      <span class="badge idle" id="b3-badge">idle</span></div>
+    <div class="events" id="events"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Plan</h2>
+    <div class="section-content" id="plan-pane"><div class="empty">no plan yet</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>Critique</h2>
+    <div class="section-content" id="critique-pane"><div class="empty">no critique yet</div></div>
+  </section>
+
+  <section class="panel" style="grid-column:1/-1">
+    <h2>Recommendation</h2>
+    <div id="recommendation-pane"><div class="empty">no result yet</div></div>
+  </section>
+
+  <section class="panel" style="grid-column:1/-1">
+    <h2>Execution</h2>
+    <div class="section-content" id="execution-pane"><div class="empty">executor not run</div></div>
+  </section>
+
+  <section class="panel" style="grid-column:1/-1">
+    <h2>Agent — live tool calls</h2>
+    <div id="agent-pane"><div class="empty">agent executor not active</div></div>
+  </section>
+
+  <section class="panel" style="grid-column:1/-1">
+    <h2>History</h2>
+    <div id="history-pane"><div class="empty">no past runs</div></div>
+  </section>
+
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const events = [];
+
+function setBadge(id, cls, text) {
+  const el = $(id);
+  el.className = "badge " + cls;
+  el.textContent = text;
+}
+
+function logEvent(type, payload) {
+  const ts = new Date().toLocaleTimeString();
+  const div = document.createElement("div");
+  div.className = "event";
+  div.innerHTML = `<span class="ts">${ts}</span><span class="type">${type}</span>`;
+  $("events").appendChild(div);
+  $("events").scrollTop = $("events").scrollHeight;
+}
+
+function renderPlan(plan) {
+  const html = `
+    <div class="label">Objective</div><div>${escapeHtml(plan.objective || "—")}</div>
+    <div class="label">Steps</div>
+    <ol>${plan.steps.map(s => `<li>${escapeHtml(s)}</li>`).join("")}</ol>
+    ${plan.assumptions.length ? `<div class="label">Assumptions</div><ul>${plan.assumptions.map(a => `<li>${escapeHtml(a)}</li>`).join("")}</ul>` : ""}
+    ${plan.risks.length ? `<div class="label">Risks</div><ul>${plan.risks.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : ""}
+    ${plan.constraints.length ? `<div class="label">Constraints</div><ul>${plan.constraints.map(c => `<li>${escapeHtml(c)}</li>`).join("")}</ul>` : ""}
+    ${plan.success_criteria.length ? `<div class="label">Success criteria</div><ul>${plan.success_criteria.map(c => `<li>${escapeHtml(c)}</li>`).join("")}</ul>` : ""}
+  `;
+  $("plan-pane").innerHTML = html;
+}
+
+function renderCritique(c) {
+  const html = `
+    <div><span class="score">${c.overall_score}/100</span>
+         <span class="judgement ${c.final_judgement}">${c.final_judgement.replaceAll("_", " ")}</span></div>
+    ${c.strengths.length ? `<div class="label">Strengths</div><ul>${c.strengths.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+    ${c.weaknesses.length ? `<div class="label">Weaknesses</div><ul>${c.weaknesses.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+    ${c.missing_elements.length ? `<div class="label">Missing</div><ul>${c.missing_elements.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+    ${c.contradictions.length ? `<div class="label">Contradictions</div><ul>${c.contradictions.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+    ${c.improvement_suggestions.length ? `<div class="label">Suggestions</div><ul>${c.improvement_suggestions.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+  `;
+  $("critique-pane").innerHTML = html;
+}
+
+function renderResult(r) {
+  const cls = r.ready_for_execution ? "ready" : "not-ready";
+  $("recommendation-pane").innerHTML = `<div class="recommendation ${cls}">
+    ${r.ready_for_execution ? "READY" : "NOT READY"} — ${escapeHtml(r.final_recommendation)}
+  </div>`;
+}
+
+function renderExecution(ex) {
+  if (!ex) {
+    $("execution-pane").innerHTML = `<div class="empty">executor not run</div>`;
+    return;
+  }
+  const steps = ex.step_results.map(r => `
+    <div class="exec-step">
+      <span class="idx">${r.index}.</span>
+      <div>
+        <div class="step-text">${escapeHtml(r.step)}</div>
+        <span class="out">${escapeHtml(r.error || r.output || "")}</span>
+      </div>
+      <span class="status-pill ${r.status}">${r.status}</span>
+    </div>`).join("");
+  $("execution-pane").innerHTML = `
+    <div><strong>${ex.overall_status}</strong> — ${escapeHtml(ex.summary)}</div>
+    ${steps}
+    ${ex.executor_notes ? `<div class="empty" style="margin-top:.5rem">${escapeHtml(ex.executor_notes)}</div>` : ""}
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, m => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;",
+  }[m]));
+}
+
+function resetPipeline() {
+  ["b1-badge", "b2-badge", "b3-badge"].forEach(id => setBadge(id, "idle", "idle"));
+  $("events").innerHTML = "";
+  $("plan-pane").innerHTML = `<div class="empty">no plan yet</div>`;
+  $("critique-pane").innerHTML = `<div class="empty">no critique yet</div>`;
+  $("recommendation-pane").innerHTML = `<div class="empty">no result yet</div>`;
+  $("execution-pane").innerHTML = `<div class="empty">executor not run</div>`;
+}
+
+async function loadProviders() {
+  try {
+    const res = await fetch("/api/providers");
+    const j = await res.json();
+    // Bias UI defaults toward something that works offline:
+    // - planner/critic = mock (gives ready_for_execution=true so the executor fires)
+    // - executor = local-agent (no API balance needed; really writes files)
+    const safePlanner  = j.planner.includes("mock")        ? "mock"        : j.defaults.planner;
+    const safeCritic   = j.critic.includes("mock")         ? "mock"        : j.defaults.critic;
+    const safeExecutor = j.executor.includes("local-agent")? "local-agent" : j.defaults.executor;
+    fillSelect("planner",  j.planner,  safePlanner);
+    fillSelect("critic",   j.critic,   safeCritic);
+    fillSelect("executor", j.executor, safeExecutor);
+    // Also tick the run-executor box by default — without it Brain 3 never fires,
+    // which is the #1 reason a first-time user thinks "nothing happened".
+    $("execute").checked = true;
+  } catch (e) {
+    console.error("provider load failed", e);
+  }
+}
+
+function fillSelect(id, opts, def) {
+  const el = $(id);
+  el.innerHTML = opts.map(o => `<option value="${o}" ${o === def ? "selected" : ""}>${o}</option>`).join("");
+}
+
+async function loadHistory() {
+  try {
+    const res = await fetch("/api/history");
+    const rows = await res.json();
+    if (!rows.length) {
+      $("history-pane").innerHTML = `<div class="empty">no past runs</div>`;
+      return;
+    }
+    $("history-pane").innerHTML = rows.map(r => `
+      <div class="history-row">
+        <div>
+          <div>${escapeHtml(r.prompt)}</div>
+          <div class="pid">${r.task_id}</div>
+        </div>
+        <div>${r.score !== null ? `<span class="score">${r.score}</span>` : ""}
+             ${r.judgement ? `<span class="judgement ${r.judgement}">${r.judgement.replaceAll("_", " ")}</span>` : ""}</div>
+        <div>${r.executed ? "executed" : (r.ready_for_execution ? "ready" : "blocked")}</div>
+      </div>
+    `).join("");
+  } catch (e) {
+    console.error("history load failed", e);
+  }
+}
+
+function startRun() {
+  const prompt = $("prompt").value.trim();
+  if (!prompt) {
+    alert("Enter a task prompt first.");
+    return;
+  }
+  resetPipeline();
+  $("run-btn").disabled = true;
+  $("connection-status").textContent = "connecting...";
+
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${proto}//${location.host}/ws/run`);
+
+  ws.onopen = () => {
+    $("connection-status").textContent = "running";
+    ws.send(JSON.stringify({
+      prompt: prompt,
+      constraints: $("constraints").value.split(",").map(s => s.trim()).filter(Boolean),
+      execute: $("execute").checked,
+      planner_provider:  $("planner").value || null,
+      critic_provider:   $("critic").value  || null,
+      executor_provider: $("executor").value || null,
+    }));
+  };
+
+  ws.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    logEvent(ev.type);
+    handleEvent(ev);
+  };
+
+  ws.onclose = () => {
+    $("run-btn").disabled = false;
+    $("connection-status").textContent = "disconnected";
+    loadHistory();
+  };
+
+  ws.onerror = () => {
+    $("connection-status").textContent = "error";
+    $("run-btn").disabled = false;
+  };
+}
+
+function handleEvent(ev) {
+  switch (ev.type) {
+    case "task_received": break;
+    case "planner_started": setBadge("b1-badge", "running", ev.iteration > 1 ? `revising #${ev.iteration}` : "planning"); break;
+    case "plan_ready": setBadge("b1-badge", "done", `done #${ev.iteration}`); renderPlan(ev.plan); break;
+    case "critic_started": setBadge("b2-badge", "running", "reviewing"); break;
+    case "critique_ready": setBadge("b2-badge", "done", `done #${ev.iteration}`); renderCritique(ev.critique); break;
+    case "executor_started": setBadge("b3-badge", "running", "executing"); resetAgentPane(); break;
+    case "execution_ready": setBadge("b3-badge", "done", "done"); renderExecution(ev.execution); break;
+    case "executor_skipped": setBadge("b3-badge", "skipped", "skipped"); break;
+    case "tool_call": appendToolCall(ev); break;
+    case "tool_result": completeToolCall(ev); break;
+    case "agent_fallback": showAgentFallback(ev.reason); break;
+    case "done": renderResult(ev.result); if (ev.result.execution) renderExecution(ev.result.execution); break;
+    case "error": alert("error: " + ev.message); break;
+  }
+}
+
+let _pendingToolCallId = 0;
+function resetAgentPane() {
+  $("agent-pane").innerHTML = "";
+  _pendingToolCallId = 0;
+}
+function showAgentFallback(reason) {
+  const div = document.createElement("div");
+  div.className = "tool-call error";
+  div.innerHTML = `
+    <div class="head">
+      <span class="name" style="color:var(--yellow)">⚠ agent fell back to deterministic</span>
+    </div>
+    <div class="result error-text">${escapeHtml(reason || "(no reason given)")}</div>
+    <div class="empty" style="margin-top:.4rem">
+      The Anthropic agent client failed (commonly: $0 balance or no API key).
+      Switch executor to <strong>local-agent</strong> to run a real, offline agent that
+      pattern-matches your prompt and writes a file into the sandbox without API access.
+    </div>`;
+  $("agent-pane").appendChild(div);
+}
+function appendToolCall(ev) {
+  _pendingToolCallId += 1;
+  const id = `tc-${_pendingToolCallId}`;
+  const argsJson = JSON.stringify(ev.arguments, null, 2);
+  const div = document.createElement("div");
+  div.className = "tool-call";
+  div.id = id;
+  div.innerHTML = `
+    <div class="head">
+      <span class="name">${escapeHtml(ev.tool)}</span>
+      <span class="iter">iter ${ev.iteration}</span>
+    </div>
+    <div class="args">${escapeHtml(argsJson)}</div>
+    <div class="result" data-pending="1">running…</div>
+  `;
+  $("agent-pane").appendChild(div);
+  $("agent-pane").scrollTop = $("agent-pane").scrollHeight;
+}
+function completeToolCall(ev) {
+  const containers = $("agent-pane").querySelectorAll(".tool-call");
+  const target = containers[containers.length - 1];
+  if (!target) return;
+  target.classList.remove("ok", "error");
+  target.classList.add(ev.status === "ok" ? "ok" : "error");
+  const result = target.querySelector(".result");
+  if (ev.status === "ok") {
+    result.classList.remove("error-text");
+    result.textContent = ev.output || "(empty)";
+  } else {
+    result.classList.add("error-text");
+    result.textContent = ev.error || "(unknown error)";
+  }
+}
+
+$("run-btn").addEventListener("click", startRun);
+loadProviders();
+loadHistory();
+</script>
+
+</body>
+</html>

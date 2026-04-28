@@ -5,6 +5,10 @@
 .two_brains_memory.json
 *.tmp
 
+# Autonomous-agent runtime sandbox — where the agent writes generated
+# files. Per-machine state, never source code, kept out of VCS.
+workspace/
+
 # Python bytecode and caches
 __pycache__/
 *.py[cod]

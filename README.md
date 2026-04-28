@@ -4,14 +4,17 @@
 [![python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A small 2-brain pipeline that turns a plain-text task into a structured
-plan, critiques it, and returns a single "ready / not ready" verdict.
+A small 3-brain pipeline that turns a plain-text task into a structured
+plan, critiques it, optionally executes it, and exposes the whole flow
+through a CLI **and** a live Web UI.
 
 * **Brain 1 — Planner**: prompt → structured plan.
 * **Brain 2 — Critic**: plan → structured critique.
-* **Orchestrator**: runs both, emits a `FinalResult`.
+* **Brain 3 — Executor**: ready plan → per-step execution report (dry-run by default).
+* **Orchestrator**: runs the brains, emits a `FinalResult`, streams phase events.
 * **Memory**: keeps the artefacts in memory, optionally persists to JSON.
-* **CLI**: `run`, `show`, `history`, `clear`, `demo`.
+* **CLI**: `run`, `show`, `history`, `clear`, `demo` — with `--execute`.
+* **Web UI**: FastAPI + WebSocket stream, single-file HTML, no build step.
 
 Three providers are registered:
 
@@ -51,6 +54,9 @@ python -m app.main "Build a calculator web app with tests."
 # With constraints (repeatable)
 python -m app.main -c "single-file" -c "no backend" "Build a calculator."
 
+# Run Brain 3 on the finalised plan (only fires when ready_for_execution)
+python -m app.main --execute "Build a small REST API."
+
 # Interactive prompt
 python -m app.main
 
@@ -65,6 +71,95 @@ python -m app.main history
 python -m app.main show <task_id>
 python -m app.main clear --yes
 ```
+
+## Web UI
+
+Same orchestrator, behind a FastAPI app with a WebSocket live stream.
+
+```bash
+python -m app.web                   # http://127.0.0.1:8000
+python -m app.web --port 9000       # alternative port
+python -m app.web --reload          # dev hot-reload
+```
+
+What the UI shows:
+
+* every phase as a coloured badge — Planner / Critic / Executor go from
+  *idle* → *running* → *done* in real time
+* the plan, critique, recommendation and per-step execution report
+  rendered as they arrive over the WebSocket
+* a history sidebar fed by `MemoryStore`
+
+Endpoints:
+
+| Method | Path                  | Purpose                                        |
+|--------|-----------------------|------------------------------------------------|
+| GET    | `/`                   | the single-page UI                             |
+| GET    | `/api/providers`      | available planner / critic / executor names    |
+| GET    | `/api/history`        | summaries of every stored task                 |
+| GET    | `/api/tasks/{id}`     | full `FinalResult` for a task                  |
+| POST   | `/api/run`            | run a task synchronously, return `FinalResult` |
+| WS     | `/ws/run`             | run a task with live phase events              |
+
+## Brain 3 — Executor
+
+The executor walks the steps of a finalised plan and produces a structured
+`ExecutionOutput` (per-step status + summary). It only fires when the plan is
+flagged `ready_for_execution`, so an unready plan is never executed by accident.
+
+Three providers, same registry as the other brains:
+
+| Provider        | What it does                                                | Needs                  |
+|-----------------|-------------------------------------------------------------|------------------------|
+| `deterministic` | Templated dry-run (default). No side effects, no network.   | Nothing                |
+| `mock`          | LLM path wired to a `MockLLMClient` with a canned report.   | Nothing                |
+| `anthropic`     | Real Claude reasons through every step.                     | API key + SDK          |
+
+Switch with `EXECUTOR_PROVIDER=anthropic` (or per-request override in the Web UI).
+
+## Autonomous mode (Brain 3 = `agent`)
+
+A fourth executor backend turns the pipeline into a Claude-Code-style
+autonomous coder: instead of *simulating*, Claude is given a sandboxed
+file-tool surface and walks the plan **for real** — reading, writing,
+editing files inside `workspace/`.
+
+```bash
+python -m app.main agent "Build a single-file Python script that prints the
+Fibonacci sequence up to 100 and write it to fib.py."
+```
+
+Tools the agent can call (all sandboxed to `workspace/` by default):
+
+| Tool         | Purpose                                                   |
+|--------------|-----------------------------------------------------------|
+| `read_file`  | Read a UTF-8 file                                         |
+| `write_file` | Create or overwrite a file (parent dirs auto-created)     |
+| `edit_file`  | Replace a unique substring in an existing file            |
+| `list_dir`   | List a directory's entries                                |
+| `grep`       | Search a regex across the sandbox tree                    |
+
+Safety bars (high-security mode, the default):
+
+* **Sandbox**: every path is validated by `Sandbox.resolve()` — absolute
+  paths, drive prefixes, `..` segments, and resolved paths outside the
+  root are refused before any I/O happens.
+* **No shell**: no `subprocess`, no network tools. Files only.
+* **Iteration cap**: hard stop at 24 model→tool round-trips per run, so
+  a hallucinating model cannot loop forever.
+* **Sized limits**: 200 KB per file read/write, 50 grep matches max,
+  200 directory entries max.
+* **Always falls back**: if the Anthropic API errors out or `ANTHROPIC_API_KEY`
+  is missing at run time, the deterministic executor takes over so the
+  command still terminates with a usable result.
+
+Configure with:
+
+| Variable           | Default               | Purpose                                |
+|--------------------|-----------------------|----------------------------------------|
+| `AGENT_WORKSPACE`  | `workspace`           | Sandbox root (relative paths only)     |
+| `AGENT_MODEL`      | `claude-sonnet-4-6`   | Anthropic model the agent talks to     |
+| `ANTHROPIC_API_KEY`| *(unset)*             | Required for the real agent path       |
 
 Exit codes — useful for shell pipelines:
 
@@ -87,7 +182,7 @@ python -m app.main "Ship feature X" && deploy.sh || echo "plan blocked"
 pytest -q
 ```
 
-Expected: **70 tests pass**. None hit the network.
+Expected: **142 tests pass**. None hit the network.
 
 ## Using a real LLM
 
@@ -133,16 +228,19 @@ two_brains/
       task.py               TaskInput
       plan.py               PlanOutput
       critique.py           CritiqueOutput + Judgement literal
-      result.py             FinalResult (task + plan + critique + verdict)
+      execution.py          ExecutionOutput, StepResult, status literals
+      result.py             FinalResult (task + plan + critique + execution + verdict)
     brains/
-      base.py                    Planner / Critic Protocols
-      __init__.py                build_planner / build_critic factories
+      base.py                    Planner / Critic / Executor Protocols
+      __init__.py                build_planner / build_critic / build_executor factories
       brain1_planner.py          Deterministic planner
       brain1_planner_llm.py      LLM-backed planner (any LLMClient)
       brain2_critic.py           Deterministic critic
       brain2_critic_llm.py       LLM-backed critic (any LLMClient)
+      brain3_executor.py         Deterministic executor (templated dry-run)
+      brain3_executor_llm.py     LLM-backed executor (any LLMClient) + fallback
     core/
-      orchestrator.py            TwoBrainOrchestrator
+      orchestrator.py            TwoBrainOrchestrator + on_event streaming hook
       logger.py                  Rich-backed logger
     memory/
       store.py                   MemoryStore (in-memory + optional JSON)
@@ -151,6 +249,10 @@ two_brains/
       __init__.py                get_llm_client factory
       mock.py                    MockLLMClient for tests / offline
       anthropic_client.py        AnthropicClient (lazy SDK import)
+    web/
+      __main__.py                python -m app.web entry point (uvicorn)
+      server.py                  FastAPI app: REST + WebSocket /ws/run
+      static/index.html          Single-page UI, vanilla JS, no build step
     utils/
       helpers.py                 new_id()
   tests/
@@ -159,11 +261,16 @@ two_brains/
     test_brain1_llm.py           LLM planner + fallback paths
     test_brain2.py               Deterministic critic
     test_brain2_llm.py           LLM critic + fallback paths
+    test_brain3.py               Deterministic executor (skipped/risky/empty paths)
+    test_brain3_llm.py           LLM executor + fallback paths
     test_brains_factory.py       Provider registry + Protocol conformance
+    test_orchestrator_executor.py  Orchestrator's gated executor wiring
+    test_iterative_loop.py       Plan → critique → revise loop
     test_llm_mock.py             MockLLMClient
     test_anthropic_client.py     AnthropicClient (fake SDK, no network)
     test_memory.py               Save/get, JSON round-trip, corruption
     test_cli.py                  Parser, dispatch, round-trip through CLI
+    test_web_server.py           FastAPI REST + WebSocket end-to-end
 ```
 
 ### Data flow
@@ -176,8 +283,14 @@ TaskInput ─▶ Planner.create_plan ─▶ PlanOutput
                                        ▲                 │
                                        │                 ▼
              Planner.revise_plan ◀─────┘          accepted? yes ──▶ FinalResult
-                    (if planner is a RevisingPlanner,
-                     loops up to MAX_ITERATIONS)
+                    (if planner is a RevisingPlanner,                 │
+                     loops up to MAX_ITERATIONS)                      │
+                                                                      ▼
+                                              (if execute=True and ready)
+                                              Executor.execute_plan
+                                                      │
+                                                      ▼
+                                                ExecutionOutput
 ```
 
 * Deterministic `PlannerBrain` doesn't implement `revise_plan`, so it
@@ -273,31 +386,34 @@ Say you want OpenAI:
 
 All optional; defaults are sensible for local use.
 
-| Variable            | Default          | Purpose                                    |
-|---------------------|------------------|--------------------------------------------|
-| `LOG_LEVEL`         | `INFO`           | Root logger level                          |
-| `MAX_ITERATIONS`    | `3`              | Reserved for the future iterative loop     |
-| `MEMORY_PATH`       | *(unset)*        | JSON file to mirror `MemoryStore` state    |
-| `PLANNER_PROVIDER`  | `deterministic`  | Which planner implementation to build      |
-| `CRITIC_PROVIDER`   | `deterministic`  | Which critic implementation to build       |
-| `LLM_PROVIDER`      | `none`           | Which LLM backend to use (not wired yet)   |
-| `OPENAI_API_KEY`    | *(unset)*        | Read by future OpenAI client               |
-| `ANTHROPIC_API_KEY` | *(unset)*        | Read by future Anthropic client            |
-| `LOCAL_LLM_URL`     | *(unset)*        | Read by future local-model client          |
+| Variable             | Default          | Purpose                                       |
+|----------------------|------------------|-----------------------------------------------|
+| `LOG_LEVEL`          | `INFO`           | Root logger level                             |
+| `MAX_ITERATIONS`     | `3`              | Cap for the iterative plan→critique→revise loop |
+| `MEMORY_PATH`        | *(unset)*        | JSON file to mirror `MemoryStore` state       |
+| `PLANNER_PROVIDER`   | `deterministic`  | Which planner implementation to build         |
+| `CRITIC_PROVIDER`    | `deterministic`  | Which critic implementation to build          |
+| `EXECUTOR_PROVIDER`  | `deterministic`  | Which executor implementation to build        |
+| `LLM_PROVIDER`       | `none`           | Which LLM backend to use (not wired yet)      |
+| `OPENAI_API_KEY`     | *(unset)*        | Read by future OpenAI client                  |
+| `ANTHROPIC_API_KEY`  | *(unset)*        | Read by `AnthropicClient`                     |
+| `LOCAL_LLM_URL`      | *(unset)*        | Read by future local-model client             |
 
 ## Status
 
-| Component                            | State                     |
-|--------------------------------------|---------------------------|
-| Brain 1 (Planner, deterministic)     | implemented               |
-| Brain 2 (Critic, deterministic)      | implemented               |
-| Brain 1 (Planner, LLM path)          | implemented + fallback    |
-| Brain 2 (Critic, LLM path)           | implemented + fallback    |
-| `MockLLMClient`                      | implemented               |
-| `AnthropicClient`                    | implemented               |
-| Orchestrator + iterative revise loop | implemented               |
-| Memory (in-process + JSON)           | implemented               |
-| CLI (run/show/history/clear/demo)    | implemented               |
-| GitHub Actions CI                    | implemented               |
-| Execution agent                      | not yet                   |
-| Other LLM providers (OpenAI, local)  | contract ready, not wired |
+| Component                              | State                     |
+|----------------------------------------|---------------------------|
+| Brain 1 (Planner, deterministic + LLM) | implemented + fallback    |
+| Brain 2 (Critic, deterministic + LLM)  | implemented + fallback    |
+| Brain 3 (Executor, deterministic + LLM)| implemented + fallback    |
+| `MockLLMClient`                        | implemented               |
+| `AnthropicClient`                      | implemented               |
+| Orchestrator + iterative revise loop   | implemented               |
+| Orchestrator event streaming hook      | implemented               |
+| Memory (in-process + JSON)             | implemented               |
+| CLI (run/show/history/clear/demo + --execute) | implemented        |
+| Web UI (FastAPI + WebSocket + HTML)    | implemented               |
+| GitHub Actions CI                      | implemented               |
+| Autonomous agent executor (sandboxed file tools) | implemented + fallback |
+| Shell / subprocess execution           | not yet (high-security mode) |
+| Other LLM providers (OpenAI, local)    | contract ready, not wired |

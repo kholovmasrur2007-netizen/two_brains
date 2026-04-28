@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from app.types import CritiqueOutput, PlanOutput, TaskInput
+from app.types import CritiqueOutput, ExecutionOutput, PlanOutput, TaskInput
 
 
 @runtime_checkable
@@ -52,4 +52,18 @@ class RevisingPlanner(Planner, Protocol):
         critique: CritiqueOutput,
     ) -> PlanOutput:
         """Return an improved plan that addresses the critique."""
+        ...
+
+
+@runtime_checkable
+class Executor(Protocol):
+    """Anything that walks a PlanOutput and produces an ExecutionOutput.
+
+    Implementations may simulate execution (deterministic, LLM-reasoned)
+    or perform real side effects in a sandbox. The orchestrator never
+    inspects the implementation — it only consumes the report.
+    """
+
+    def execute_plan(self, task: TaskInput, plan: PlanOutput) -> ExecutionOutput:
+        """Run the plan's steps in order and return a structured report."""
         ...

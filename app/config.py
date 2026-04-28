@@ -24,8 +24,16 @@ class Settings:
     # Provider selection for the two brains. Today only "deterministic"
     # is registered in app/brains/__init__.py; future values:
     # "openai", "anthropic", "local".
-    planner_provider: str = os.getenv("PLANNER_PROVIDER", "deterministic")
-    critic_provider:  str = os.getenv("CRITIC_PROVIDER",  "deterministic")
+    planner_provider:  str = os.getenv("PLANNER_PROVIDER",  "deterministic")
+    critic_provider:   str = os.getenv("CRITIC_PROVIDER",   "deterministic")
+    executor_provider: str = os.getenv("EXECUTOR_PROVIDER", "deterministic")
+
+    # Sandbox root for the autonomous agent (executor_provider="agent").
+    # Resolved relative to the project working directory if not absolute.
+    agent_workspace: str = os.getenv("AGENT_WORKSPACE", "workspace")
+    # Anthropic model used by the AnthropicAgentClient. Override to test
+    # cheaper models without touching code.
+    agent_model: str = os.getenv("AGENT_MODEL", "claude-sonnet-4-6")
 
     # LLM provider selection. Only read by app/llm/get_llm_client() once
     # an LLM-backed brain is registered. Ignored while both brains run
