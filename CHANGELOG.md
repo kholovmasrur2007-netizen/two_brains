@@ -4,6 +4,96 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/).
 
+## [3.0.0] — 2026-04-29
+
+The "world-leader" release. Builds on v2.0's SaaS foundation by adding
+the four production-grade safety nets that separate a deployable team
+tool from an agent that can be trusted with autonomous execution on
+real hardware.
+
+### Added — Brain 2 dual critic
+
+- **`SafetyCritic`** (`app/brains/brain2_critic_safety.py`) — a
+  deterministic, regex-driven safety pass. Scans every step + risk +
+  objective for dangerous tokens (`rm -rf`, `sudo`, `chmod 777`,
+  `curl|wget`, `subprocess`/`os.system`, `python -m http.server`),
+  sandbox-traversal (`../`, `/c:`, drive-letter prefixes), module-not-
+  found / unknown-command hints, fuzzy success criteria
+  (`should work`, `hopefully`, `maybe`), and writes-without-declared-
+  risks. Each finding deducts points; final score caps at 100, floors
+  at 0; judgement maps from the score using the same thresholds the
+  orchestrator already enforces.
+- **Dual-critic orchestrator**: every iteration of the
+  plan→critique loop runs both the primary critic and the
+  `SafetyCritic`. The combined critique inherits
+  `min(primary.score, safety.score)`, the union of weaknesses /
+  missing / contradictions / risk_flags, and a recomputed
+  `final_judgement`. A confident-sounding correctness pass can no
+  longer override a safety failure. Toggleable via
+  `enable_dual_critic=True` (default) on `TwoBrainOrchestrator`.
+
+### Added — runtime safety nets
+
+- **300 s wall-clock timeout** in `AgentExecutorBrain`. The agent loop
+  checks `time.monotonic()` against a deadline at the start of every
+  iteration; on overrun it halts cleanly with `halted_reason="timeout"`,
+  populates a partial trace, and the deterministic fallback never
+  kicks in — the failure surfaces as a `failed` ExecutionOutput.
+- **Disk-space pre-flight in `write_file`**. Before opening the file
+  the sandbox calls `shutil.disk_usage(root).free`; if the encoded
+  payload is bigger, the call fails with a clear Russian-language
+  `SandboxError` ("Недостаточно места: нужно X, свободно Y"). This
+  closes the "fill-the-disk" DoS class.
+- **WebSocket per-IP rate limit**. slowapi covers REST only; for
+  `/ws/run` we keep an in-memory sliding window: 10 connections per
+  IP per 60 seconds, otherwise the upgrade is closed with code 1008
+  "Rate limit exceeded".
+
+### Added — distribution
+
+- **`install.sh`** — one-line installer (`curl | bash`) that clones
+  the repo, copies `.env.example` to `.env`, and brings the
+  docker-compose stack up.
+- **`deploy-demo.sh`** — VPS-side deploy: clones to `/opt/two-brains`,
+  generates a 32-byte JWT secret, prompts for API keys, switches
+  AUTH_ENABLED + USE_DB on, generates a self-signed TLS cert if none
+  exists, and runs `docker compose up -d --build`.
+- **`POST.md`** — drop-in announcement copy for LinkedIn / Хабр /
+  Twitter / Hacker News in both Russian and English.
+- **`.github/workflows/plan-review.yml`** — PR action that runs the
+  pipeline on `plan.txt` changes and posts the dual-critic verdict
+  back as a comment. Uses deterministic providers — no API credits
+  needed in CI.
+
+### Tests
+
+- 228 → **238 (+10)**. New file: `tests/test_brain2_safety.py`
+  covers safe plan, `rm -rf`, `sudo`, `curl|wget`, `..` traversal,
+  fuzzy success criteria, writes-without-risks, and compounding
+  multi-pattern penalties. `tests/test_brains_factory.py` adds an
+  assertion that the `safety` provider is registered.
+
+### Changed
+
+- README rewrites: title becomes "two_brains v3.0 — самый безопасный
+  AI-агент в мире", adds GitHub Actions / release / Python /
+  Docker / license / tests / stars badges, comparison table vs
+  AutoGPT / BabyAGI / LangChain Agents, install-in-2-minutes section,
+  Telegram-bot-coming-soon teaser.
+- Dangerous-pattern penalty in `SafetyCritic` is now -20 (was -15)
+  so a single hit reliably drops a plan below the 85-point execution
+  bar.
+
+### Security
+
+- Safety critic catches dangerous tokens *and* combines with the
+  primary critic via `min()` — even a perfect correctness score
+  can't override `rm -rf`.
+- WebSocket rate limit closes the gap slowapi (REST-only) leaves
+  open.
+- Disk-space pre-flight prevents a runaway agent from filling the
+  host filesystem.
+
 ## [2.0.0] — 2026-04-29
 
 The "team-ready" release. Goes from a single-user offline pipeline to

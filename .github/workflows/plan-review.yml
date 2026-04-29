@@ -1,0 +1,76 @@
+name: Plan Review
+
+# Runs the planner + safety critic against the prompt in plan.txt of any
+# PR that adds or changes that file. Posts a summary back to the PR.
+#
+# This is a *demo* workflow — it doesn't require API credits because we
+# default to the deterministic providers. Switch PLANNER_PROVIDER /
+# CRITIC_PROVIDER to "anthropic" or "openai" once secrets are configured.
+
+on:
+  pull_request:
+    paths:
+      - 'plan.txt'
+      - '.github/workflows/plan-review.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run two_brains plan + dual-critic on plan.txt
+        id: review
+        env:
+          PLANNER_PROVIDER: deterministic
+          CRITIC_PROVIDER:  deterministic
+        run: |
+          if [ ! -f plan.txt ]; then
+            echo "plan.txt not present — skipping" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo 'review<<__EOF__'
+            python -m app.main run --format json "$(cat plan.txt)" || true
+            echo
+            echo '__EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post summary as PR comment
+        if: steps.review.outputs.review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const review = `${{ steps.review.outputs.review }}`;
+            const body = [
+              '### two_brains plan review',
+              '',
+              'Combined critique (primary + safety) for `plan.txt`:',
+              '',
+              '```json',
+              review.length > 30000 ? review.slice(0, 30000) + '\n...(truncated)' : review,
+              '```',
+              '',
+              '_Powered by two_brains v3.0 — dual-critic with deterministic safety pass._',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });

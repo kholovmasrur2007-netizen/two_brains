@@ -1,30 +1,14 @@
 # two_brains v3.0 — самый безопасный AI-агент в мире
 
 [![tests](https://github.com/kholovmasrur2007-netizen/two_brains/actions/workflows/tests.yml/badge.svg)](https://github.com/kholovmasrur2007-netizen/two_brains/actions/workflows/tests.yml)
-[![python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![release](https://img.shields.io/github/v/release/kholovmasrur2007-netizen/two_brains?include_prereleases&label=release)](https://github.com/kholovmasrur2007-netizen/two_brains/releases)
+[![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/downloads/)
+[![docker](https://img.shields.io/badge/docker-compose-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![release](https://img.shields.io/github/v/release/kholovmasrur2007-netizen/two_brains)](https://github.com/kholovmasrur2007-netizen/two_brains/releases)
-[![docker](https://img.shields.io/badge/docker-compose-blue.svg)](docker-compose.yml)
-[![tests-count](https://img.shields.io/badge/tests-228%20green-brightgreen.svg)](#test)
+[![tests-count](https://img.shields.io/badge/tests-238%20green-brightgreen.svg)](#test)
+[![stars](https://img.shields.io/github/stars/kholovmasrur2007-netizen/two_brains?style=social)](https://github.com/kholovmasrur2007-netizen/two_brains/stargazers)
 
-## Установка за 2 минуты
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/kholovmasrur2007-netizen/two_brains/main/install.sh | bash
-```
-
-Или вручную:
-
-```bash
-git clone https://github.com/kholovmasrur2007-netizen/two_brains
-cd two_brains
-chmod +x install.sh && ./install.sh
-```
-
-Установщик клонирует репо, создаёт `.env`, поднимает Docker-стек
-(app + Postgres + nginx) и открывает доступ на `https://localhost`.
-
-## Чем мы отличаемся от других
+## Чем мы отличаемся от AutoGPT / BabyAGI / LangChain Agents
 
 | Фича                          | two_brains v3.0 | AutoGPT | BabyAGI | LangChain Agents |
 |-------------------------------|:---:|:---:|:---:|:---:|
@@ -38,8 +22,49 @@ chmod +x install.sh && ./install.sh
 | WebSocket rate limit           | ✅ | ❌ | ❌ | ❌ |
 | Audit log + Prometheus metrics | ✅ | ❌ | ❌ | ❌ |
 | One-line install (Docker+nginx)| ✅ | ❌ | ❌ | ❌ |
-| 228 тестов, CI зелёный         | ✅ | ⚠️ | ❌ | ⚠️ |
+| 238 тестов, CI зелёный         | ✅ | ⚠️ | ❌ | ⚠️ |
 | Open-source MIT                | ✅ | ✅ | ✅ | ✅ |
+
+## Демо
+
+Живая демка скоро на 👉 **[demo.two-brains.ai](https://demo.two-brains.ai)**
+(временно недоступна — поднимаем; используй локальный запуск ниже).
+
+Локально за 5 секунд:
+```bash
+docker compose up -d --build && open https://localhost
+```
+
+## Установка за 2 минуты
+
+Одной строкой:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kholovmasrur2007-netizen/two_brains/main/install.sh | bash
+```
+
+Или ручками:
+
+```bash
+git clone https://github.com/kholovmasrur2007-netizen/two_brains
+cd two_brains && chmod +x install.sh && ./install.sh
+```
+
+Установщик клонирует репо, копирует `.env.example → .env`, поднимает
+Docker-стек (app + Postgres + nginx) и открывает интерфейс на
+`https://localhost`. Логин по умолчанию: `admin / admin`.
+
+## Telegram-бот
+
+🚀 **Скоро** — `@two_brains_bot` для Telegram. Будет:
+
+- Запускать задачи прямо из чата: `/run create hello.py with hello world`
+- Стримить tool calls и результат в реальном времени в чате
+- Свой sandbox для каждого пользователя (подключается через JWT)
+- Команды `/usage` (квота), `/history` (последние запуски), `/audit` (для админов)
+
+Подпишись на [GitHub Releases](https://github.com/kholovmasrur2007-netizen/two_brains/releases),
+чтобы узнать о релизе бота первым.
 
 A small 3-brain pipeline that turns a plain-text task into a structured
 plan, critiques it, optionally executes it, and exposes the whole flow
