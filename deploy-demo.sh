@@ -16,6 +16,17 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${GREEN}🚀 two_brains v3.0 — demo deploy${NC}"
+echo
+
+# ── 0. DNS instruction ───────────────────────────────────────────────
+PUBLIC_IP=$(curl -s --max-time 4 https://api.ipify.org 2>/dev/null || echo "<this-server-IP>")
+DEMO_DOMAIN="${DEMO_DOMAIN:-demo.two-brains.ai}"
+echo -e "${YELLOW}DNS-проверка перед стартом:${NC}"
+echo "    Создай A-запись в DNS-провайдере:"
+echo "        ${DEMO_DOMAIN}   →   ${PUBLIC_IP}"
+echo "    Дождись пока 'dig +short ${DEMO_DOMAIN}' вернёт ${PUBLIC_IP}."
+echo "    Затем продолжай — сертификат будет на ${DEMO_DOMAIN}."
+echo
 
 # ── 1. Pre-flight checks ─────────────────────────────────────────────
 if ! command -v docker &> /dev/null; then
@@ -24,6 +35,15 @@ if ! command -v docker &> /dev/null; then
 fi
 if ! docker compose version &> /dev/null; then
     echo -e "${RED}'docker compose' не работает. Поставь docker compose v2.${NC}"
+    exit 1
+fi
+DOCKER_VERSION=$(docker --version | awk '{print $3}' | tr -d ',')
+echo -e "${GREEN}✓ Docker $DOCKER_VERSION готов${NC}"
+if ! command -v openssl &> /dev/null; then
+    echo -e "${YELLOW}openssl не найден — самоподписанный cert не будет создан.${NC}"
+fi
+if ! command -v python3 &> /dev/null; then
+    echo -e "${RED}python3 нужен для генерации SECRET_KEY${NC}"
     exit 1
 fi
 
@@ -88,10 +108,12 @@ docker compose up -d --build
 
 echo
 echo -e "${GREEN}✅ Готово.${NC}"
-echo "    https://demo.two-brains.ai  (или https://<IP-сервера>)"
+echo "    https://${DEMO_DOMAIN}  (или https://${PUBLIC_IP})"
 echo "    Логин по умолчанию: admin / admin (поменяй в /auth/me)"
 echo
 echo "Проверка живости:"
 echo "    curl -k https://localhost/health"
 echo "Логи:"
 echo "    docker compose logs -f app"
+echo
+echo "Сервисы перезапускаются автоматически (restart: always) — ребут VPS не страшен."

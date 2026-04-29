@@ -6,6 +6,7 @@
 [![docker](https://img.shields.io/badge/docker-compose-2496ED.svg?logo=docker&logoColor=white)](docker-compose.yml)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![tests-count](https://img.shields.io/badge/tests-238%20green-brightgreen.svg)](#test)
+[![telegram](https://img.shields.io/badge/telegram-bot-26A5E4.svg?logo=telegram&logoColor=white)](README.telegram.md)
 [![stars](https://img.shields.io/github/stars/kholovmasrur2007-netizen/two_brains?style=social)](https://github.com/kholovmasrur2007-netizen/two_brains/stargazers)
 
 ## Чем мы отличаемся от AutoGPT / BabyAGI / LangChain Agents
@@ -27,8 +28,12 @@
 
 ## Демо
 
-Живая демка скоро на 👉 **[demo.two-brains.ai](https://demo.two-brains.ai)**
-(временно недоступна — поднимаем; используй локальный запуск ниже).
+Публичная демка на: 👉 **[demo.two-brains.ai](https://demo.two-brains.ai)**
+
+> **⚠ Деплой инструкция:** для запуска под этим доменом нужно
+> направить DNS A-запись на VPS (см. [`deploy-demo.sh`](deploy-demo.sh)).
+> Пока не настроено — демка вернёт ошибку DNS. Используй локальный
+> запуск ниже или собери у себя.
 
 Локально за 5 секунд:
 ```bash
@@ -56,15 +61,29 @@ Docker-стек (app + Postgres + nginx) и открывает интерфей�
 
 ## Telegram-бот
 
-🚀 **Скоро** — `@two_brains_bot` для Telegram. Будет:
+📦 **Готов** — собственный Telegram-бот ставит задачи в API two_brains
+и отвечает прямо в чате.
 
-- Запускать задачи прямо из чата: `/run create hello.py with hello world`
-- Стримить tool calls и результат в реальном времени в чате
-- Свой sandbox для каждого пользователя (подключается через JWT)
-- Команды `/usage` (квота), `/history` (последние запуски), `/audit` (для админов)
+```bash
+# 1. Получи токен у @BotFather
+# 2. Допиши в .env:
+TELEGRAM_BOT_TOKEN=1234567890:ABC...
+TWOBRAINS_BOT_USERNAME=bot
+TWOBRAINS_BOT_PASSWORD=<твой-пароль-сервисного-аккаунта>
 
-Подпишись на [GitHub Releases](https://github.com/kholovmasrur2007-netizen/two_brains/releases),
-чтобы узнать о релизе бота первым.
+# 3. Запусти:
+docker compose --profile bot up -d --build bot
+```
+
+Команды бота:
+
+| `/start` | приветствие | `/run <prompt>` | поставить задачу |
+|:---|:---|:---|:---|
+| `/status` | проверить liveness | `/usage` | остаток квоты |
+| `/help` | справка | | |
+
+Подробная инструкция: [README.telegram.md](README.telegram.md)
+(BotFather, сервисный аккаунт, профиль `bot` в compose, локальный запуск).
 
 A small 3-brain pipeline that turns a plain-text task into a structured
 plan, critiques it, optionally executes it, and exposes the whole flow

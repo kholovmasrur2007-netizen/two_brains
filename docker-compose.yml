@@ -13,7 +13,7 @@ services:
   # ── PostgreSQL — durable state for users, tasks, audit log ────────
   db:
     image: postgres:16-alpine
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_USER:     ${POSTGRES_USER:-twobrains}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
@@ -30,7 +30,7 @@ services:
   app:
     build: .
     image: two_brains:latest
-    restart: unless-stopped
+    restart: always
     depends_on:
       db:
         condition: service_healthy
@@ -52,7 +52,7 @@ services:
   # ── nginx — TLS termination + reverse proxy ───────────────────────
   nginx:
     image: nginx:1.27-alpine
-    restart: unless-stopped
+    restart: always
     depends_on: [app]
     ports:
       - "80:80"
@@ -60,6 +60,24 @@ services:
     volumes:
       - ./nginx/two_brains.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
+
+  # ── Telegram bot (optional — only starts if TELEGRAM_BOT_TOKEN set) ─
+  # Profile keeps it out of `docker compose up` by default; enable with
+  #     docker compose --profile bot up -d
+  # or just always start it by removing the profile line.
+  bot:
+    build: ./telegram_bot
+    image: two_brains_bot:latest
+    restart: always
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      TELEGRAM_BOT_TOKEN:  ${TELEGRAM_BOT_TOKEN:-}
+      TWOBRAINS_URL:       "http://app:8000"
+      TWOBRAINS_USERNAME:  ${TWOBRAINS_BOT_USERNAME:-bot}
+      TWOBRAINS_PASSWORD:  ${TWOBRAINS_BOT_PASSWORD:-bot}
+    profiles: ["bot"]
 
 volumes:
   pgdata:
