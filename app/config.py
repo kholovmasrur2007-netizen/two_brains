@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-@dataclass(frozen=True)
+@dataclass
 class Settings:
     """Process-wide settings. Extend as needed."""
 

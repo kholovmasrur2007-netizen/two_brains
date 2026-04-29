@@ -14,8 +14,13 @@ from app.web.server import create_app
 
 
 @pytest.fixture
-def client() -> TestClient:
-    """A TestClient over a freshly-built app with an isolated MemoryStore."""
+def client(monkeypatch) -> TestClient:
+    """A TestClient over a freshly-built app with an isolated MemoryStore.
+
+    Rate limiting is disabled — the test suite hammers /api/run faster than
+    real users would and we don't want 429s polluting unrelated assertions.
+    """
+    monkeypatch.setattr("app.security.rate_limit.limiter.enabled", False)
     app = create_app(memory=MemoryStore())
     return TestClient(app)
 

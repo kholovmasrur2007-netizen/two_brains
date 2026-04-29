@@ -182,7 +182,7 @@ python -m app.main "Ship feature X" && deploy.sh || echo "plan blocked"
 pytest -q
 ```
 
-Expected: **183 tests pass**. None hit the network.
+Expected: **228 tests pass**. None hit the network.
 
 ## Using a real LLM
 
@@ -450,24 +450,70 @@ child process environment.
 | `AGENT_WORKSPACE`    | `workspace`          | Sandbox root for the autonomous agent |
 | `AGENT_MODEL`        | `claude-sonnet-4-6`  | Anthropic model for the agent loop |
 
+## Production deployment (Docker)
+
+```bash
+cp .env.example .env
+# edit .env: set SECRET_KEY, ANTHROPIC_API_KEY/OPENAI_API_KEY, etc.
+
+# (optional) generate self-signed TLS cert
+mkdir -p nginx/certs && cd nginx/certs
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout server.key -out server.crt -subj "/CN=localhost"
+cd ../..
+
+docker compose up -d --build
+# https://localhost — login with the auto-created admin/admin user
+```
+
+The stack:
+
+* **app** — FastAPI + WebSocket on `:8000`, runs as non-root `appuser`
+* **db** — PostgreSQL 16 with persistent volume `pgdata`
+* **nginx** — TLS termination, HTTP→HTTPS redirect, WebSocket upgrade,
+  internal-only `/metrics`
+
+## Operations endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/health` | Liveness probe (always 200 if process is up) |
+| GET | `/ready` | Readiness — checks DB connectivity when USE_DB=true |
+| GET | `/metrics` | Prometheus text-format counters |
+| GET | `/api/usage` | Caller's quota usage today |
+| GET | `/api/audit` | Audit log (admin only) — filter by username/action |
+
+Counters surfaced in `/metrics`:
+
+```
+two_brains_uptime_seconds          gauge
+two_brains_requests_total          counter
+two_brains_runs_total              counter
+two_brains_runs_failed_total       counter
+two_brains_auth_logins_total       counter
+two_brains_auth_failures_total     counter
+two_brains_quota_exceeded_total    counter
+two_brains_rate_limited_total      counter
+```
+
 ## Status
 
 | Component | State |
 |-----------|-------|
-| Brain 1 (Planner, deterministic + LLM) | implemented + fallback |
-| Brain 2 (Critic, deterministic + LLM) | implemented + fallback |
-| Brain 3 (Executor, deterministic + LLM + agent + local-agent) | implemented + fallback |
-| OpenAI provider (planner / critic / executor / openai-agent) | implemented |
-| Sandboxed shell tools (run_python, run_pytest) | implemented |
-| SQLite / PostgreSQL memory (SQLMemoryStore) | implemented |
-| JWT authentication (login / register / protect endpoints) | implemented |
-| Web UI login screen | implemented |
-| `MockLLMClient` | implemented |
-| `AnthropicClient` | implemented |
-| `OpenAIClient` | implemented |
-| Orchestrator + iterative revise loop | implemented |
-| Orchestrator event streaming hook | implemented |
-| Memory (in-process + JSON + SQL) | implemented |
-| CLI (run/show/history/clear/demo/agent) | implemented |
-| Web UI (FastAPI + WebSocket + HTML) | implemented |
-| GitHub Actions CI | implemented |
+| Brain 1 (Planner) — deterministic / LLM / Anthropic / OpenAI | ✅ + fallback |
+| Brain 2 (Critic) — deterministic / LLM / Anthropic / OpenAI | ✅ + fallback |
+| Brain 3 (Executor) — deterministic / LLM / Anthropic / OpenAI / agent / local-agent / openai-agent | ✅ + fallback |
+| Sandboxed shell tools (run_python, run_pytest) | ✅ |
+| SQLite / PostgreSQL memory (SQLMemoryStore) | ✅ |
+| JWT authentication + per-user accounts | ✅ |
+| **Per-user sandbox isolation** (`workspace/<username>/`) | ✅ |
+| **Rate limiting** (slowapi, per-IP) | ✅ |
+| **Daily per-user task quotas** (DB-backed counter) | ✅ |
+| **Audit log** (login / run / register, with admin reader) | ✅ |
+| **Health / readiness / Prometheus metrics** | ✅ |
+| **Docker + docker-compose stack (web + postgres + nginx)** | ✅ |
+| **TLS termination via nginx reverse proxy** | ✅ |
+| Web UI (FastAPI + WebSocket + HTML + login screen) | ✅ |
+| CLI (run/show/history/clear/demo/agent) | ✅ |
+| Orchestrator + iterative revise loop + event streaming | ✅ |
+| GitHub Actions CI (Python 3.11 + 3.12) | ✅ |

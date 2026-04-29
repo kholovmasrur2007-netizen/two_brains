@@ -30,15 +30,18 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from slowapi.errors import RateLimitExceeded
 
 from app.auth import create_first_admin, get_current_user, router as auth_router
 from app.brains import (
     build_critic,
     build_executor,
+    build_per_user_executor,
     build_planner,
     registered_critic_providers,
     registered_executor_providers,
@@ -48,6 +51,10 @@ from app.config import settings
 from app.core.logger import get_logger
 from app.core.orchestrator import TwoBrainOrchestrator
 from app.memory.store import MemoryStore
+from app.security.audit import AuditLogger, _client_ip, audit_router
+from app.security.health import health_router, increment as metric_inc
+from app.security.quotas import DailyQuotaExceeded, check_and_record_quota
+from app.security.rate_limit import RATE_LIMIT_RUN, limiter, rate_limit_handler
 from app.types import FinalResult, TaskInput
 from app.utils.helpers import new_id
 
@@ -130,8 +137,28 @@ def create_app(memory=None) -> FastAPI:
     store = memory if memory is not None else _build_memory()
     app.state.memory = store
 
+    # Ensure all tables exist when DB mode is on. Idempotent — safe to
+    # call on every restart. SQLMemoryStore already does this in its
+    # constructor, but the audit + quota tables are needed even when
+    # the test fixture supplies a non-DB store.
+    if settings.use_db:
+        try:
+            from app.db.engine import init_db
+            init_db()
+        except Exception as e:  # noqa: BLE001
+            _log.warning("init_db failed at startup: %s", e)
+
+    # Rate limiting (slowapi). The middleware adds /Retry-After/ headers and
+    # 429s; the handler converts the slowapi exception to a JSON body.
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
     # Auth router (login / register / me / status)
     app.include_router(auth_router)
+    # Audit log REST surface (admin-only)
+    app.include_router(audit_router)
+    # Ops endpoints (/health, /ready, /metrics)
+    app.include_router(health_router)
 
     # Bootstrap first admin when auth + DB are enabled
     create_first_admin()
@@ -165,6 +192,20 @@ def create_app(memory=None) -> FastAPI:
             ),
         )
 
+    # ── REST: per-user quota usage (protected) ───────────────────────
+
+    @app.get("/api/usage")
+    def usage(user=Depends(get_current_user)) -> dict:
+        """Return today's quota usage and remaining budget for the caller."""
+        from app.security.quotas import DAILY_TASK_QUOTA, usage_today
+        used = usage_today(user.username)
+        return {
+            "username": user.username,
+            "used_today": used,
+            "daily_quota": DAILY_TASK_QUOTA,
+            "remaining": max(0, DAILY_TASK_QUOTA - used),
+        }
+
     # ── REST: history (protected) ────────────────────────────────────
 
     @app.get("/api/history", response_model=list[TaskSummary])
@@ -191,17 +232,53 @@ def create_app(memory=None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"no result for task_id={task_id}")
         return result
 
-    # ── REST: synchronous run (protected) ────────────────────────────
+    # ── REST: synchronous run (protected, rate-limited, quota'd) ─────
 
     @app.post("/api/run", response_model=FinalResult)
-    def run(req: RunRequest, _user=Depends(get_current_user)) -> FinalResult:
+    @limiter.limit(RATE_LIMIT_RUN)
+    def run(
+        request: Request,
+        req: RunRequest,
+        user=Depends(get_current_user),
+    ) -> FinalResult:
+        metric_inc("two_brains_requests_total")
+        ip = _client_ip(request)
+
+        # Daily quota check (returns 429 with Retry-After-like detail).
         try:
-            orchestrator = _make_orchestrator(req, store)
+            check_and_record_quota(user.username)
+        except DailyQuotaExceeded as e:
+            metric_inc("two_brains_quota_exceeded_total")
+            AuditLogger.log(
+                action="run", username=user.username, ip=ip,
+                status="quota_exceeded", details=str(e),
+            )
+            raise HTTPException(status_code=429, detail=str(e)) from None
+
+        try:
+            orchestrator = _make_orchestrator(req, store, username=user.username)
         except ValueError as e:
+            AuditLogger.log(action="run", username=user.username, ip=ip,
+                            status="error", details=str(e))
             raise HTTPException(status_code=400, detail=str(e)) from None
 
         task = TaskInput(id=new_id(), prompt=req.prompt, constraints=list(req.constraints))
-        return orchestrator.run(task, execute=req.execute)
+        try:
+            result = orchestrator.run(task, execute=req.execute)
+        except Exception as e:  # noqa: BLE001
+            metric_inc("two_brains_runs_failed_total")
+            AuditLogger.log(action="run", username=user.username, ip=ip,
+                            target=task.id, status="error",
+                            details=f"{e.__class__.__name__}: {e}")
+            raise HTTPException(status_code=500, detail=str(e)) from None
+
+        metric_inc("two_brains_runs_total")
+        AuditLogger.log(
+            action="run", username=user.username, ip=ip, target=task.id,
+            status="ok",
+            details=f"executor={req.executor_provider} ready={result.ready_for_execution}",
+        )
+        return result
 
     # ── WebSocket: streamed run ──────────────────────────────────────
 
@@ -219,6 +296,7 @@ def create_app(memory=None) -> FastAPI:
 
         # Auth check: if auth is enabled, first message must carry a token.
         from app.auth.core import _AUTH_ENABLED, _decode_token, _get_user_row
+        username: str | None = None
         if _AUTH_ENABLED:
             token = payload.get("token") or ""
             username = _decode_token(token)
@@ -235,7 +313,7 @@ def create_app(memory=None) -> FastAPI:
             return
 
         try:
-            orchestrator = _make_orchestrator(req, store)
+            orchestrator = _make_orchestrator(req, store, username=username)
         except ValueError as e:
             await _send_error(ws, str(e))
             await ws.close()
@@ -284,11 +362,24 @@ def create_app(memory=None) -> FastAPI:
 # ── internal helpers ──────────────────────────────────────────────────
 
 
-def _make_orchestrator(req: RunRequest, store: MemoryStore) -> TwoBrainOrchestrator:
-    """Build a TwoBrainOrchestrator honouring per-request provider overrides."""
+def _make_orchestrator(
+    req: RunRequest,
+    store,
+    username: str | None = None,
+) -> TwoBrainOrchestrator:
+    """Build a TwoBrainOrchestrator honouring per-request provider overrides.
+
+    When a username is supplied, agent-style executors are sandboxed to
+    ``workspace/<username>/`` so concurrent users cannot read or
+    overwrite each other's generated files.
+    """
     planner = build_planner(req.planner_provider) if req.planner_provider else None
     critic = build_critic(req.critic_provider) if req.critic_provider else None
-    executor = build_executor(req.executor_provider) if req.executor_provider else None
+    executor = (
+        build_per_user_executor(req.executor_provider, username)
+        if req.executor_provider
+        else None
+    )
     return TwoBrainOrchestrator(
         planner=planner,
         critic=critic,

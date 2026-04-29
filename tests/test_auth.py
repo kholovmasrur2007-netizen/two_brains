@@ -10,8 +10,9 @@ from app.web.server import create_app
 
 
 @pytest.fixture
-def client_noauth() -> TestClient:
+def client_noauth(monkeypatch) -> TestClient:
     """App with AUTH_ENABLED=false (default) — all endpoints open."""
+    monkeypatch.setattr("app.security.rate_limit.limiter.enabled", False)
     app = create_app(memory=MemoryStore())
     return TestClient(app)
 
@@ -24,6 +25,7 @@ def client_auth(tmp_path, monkeypatch) -> TestClient:
 
     # Patch module-level flag directly — works on non-frozen objects.
     monkeypatch.setattr(auth_core, "_AUTH_ENABLED", True)
+    monkeypatch.setattr("app.security.rate_limit.limiter.enabled", False)
 
     db_url = f"sqlite:///{tmp_path}/auth_test.db"
     # Patch _get_user_row / _create_user_row / _user_count to use isolated DB.

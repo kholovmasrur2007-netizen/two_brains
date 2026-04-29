@@ -327,3 +327,60 @@ def build_executor(provider: str = "deterministic") -> Executor:
             f"unknown executor provider {provider!r}; "
             f"available: {registered_executor_providers()}"
         ) from None
+
+
+# Provider names that touch the filesystem. They must be re-built per
+# user so each user gets an isolated workspace/<username>/ directory.
+_FILESYSTEM_PROVIDERS: frozenset[str] = frozenset(
+    {"agent", "local-agent", "openai-agent"}
+)
+
+
+def build_per_user_executor(provider: str, username: str | None) -> Executor:
+    """Build an executor with a per-user sandbox when the provider needs one.
+
+    For ``agent`` / ``local-agent`` / ``openai-agent`` providers, the
+    sandbox root becomes ``<agent_workspace>/<username>``. For every
+    other provider (deterministic, mock, anthropic, openai) the call
+    reduces to a plain ``build_executor(provider)`` because those paths
+    never touch the disk.
+
+    When ``username`` is ``None`` (auth disabled) the shared default
+    workspace is used — same as the single-user mode.
+    """
+    if provider not in _FILESYSTEM_PROVIDERS or not username:
+        return build_executor(provider)
+
+    from app import config
+    from app.brains.brain3_executor_agent import AgentExecutorBrain
+    from app.sandbox import Sandbox, user_workspace
+
+    user_ws = user_workspace(config.settings.agent_workspace, username)
+    sandbox = Sandbox(user_ws)
+
+    if provider == "local-agent":
+        from app.agent.local import LocalAgentClient
+        return AgentExecutorBrain(client=LocalAgentClient(), sandbox=sandbox)
+
+    if provider == "agent":
+        from app.agent.client import AgentClientError, AnthropicAgentClient
+        api_key = config.settings.anthropic_api_key
+        if not api_key:
+            raise AgentClientError("ANTHROPIC_API_KEY is not set")
+        return AgentExecutorBrain(
+            client=AnthropicAgentClient(api_key=api_key, model=config.settings.agent_model),
+            sandbox=sandbox,
+        )
+
+    if provider == "openai-agent":
+        from app.agent.client import AgentClientError, OpenAIAgentClient
+        api_key = config.settings.openai_api_key
+        if not api_key:
+            raise AgentClientError("OPENAI_API_KEY is not set")
+        return AgentExecutorBrain(
+            client=OpenAIAgentClient(api_key=api_key, model=config.settings.openai_model),
+            sandbox=sandbox,
+        )
+
+    # Unreachable — kept for the type checker.
+    return build_executor(provider)

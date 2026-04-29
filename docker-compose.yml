@@ -1,0 +1,66 @@
+# Production-style stack: nginx reverse-proxy → app → postgres.
+#
+# Bring everything up with:
+#
+#     cp .env.example .env          # set SECRET_KEY, ANTHROPIC_API_KEY, etc.
+#     docker compose up -d --build
+#
+# Then open https://localhost (nginx terminates TLS) — or http://localhost
+# for plain HTTP if you skipped the cert step.
+
+services:
+
+  # ── PostgreSQL — durable state for users, tasks, audit log ────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-twobrains}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB:       ${POSTGRES_DB:-twobrains}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Application — FastAPI + WebSocket ─────────────────────────────
+  app:
+    build: .
+    image: two_brains:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      USE_DB: "true"
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER:-twobrains}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-twobrains}"
+      AUTH_ENABLED: "${AUTH_ENABLED:-true}"
+      SECRET_KEY:           ${SECRET_KEY:?SECRET_KEY required}
+      ANTHROPIC_API_KEY:    ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY:       ${OPENAI_API_KEY:-}
+      AGENT_WORKSPACE:      "/app/workspace"
+      DAILY_TASK_QUOTA:     "${DAILY_TASK_QUOTA:-200}"
+      RATE_LIMIT_GLOBAL:    "${RATE_LIMIT_GLOBAL:-200/minute}"
+    volumes:
+      - workspace:/app/workspace
+    expose:
+      - "8000"
+
+  # ── nginx — TLS termination + reverse proxy ───────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/two_brains.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+
+volumes:
+  pgdata:
+  workspace:

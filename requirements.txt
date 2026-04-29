@@ -21,6 +21,9 @@ passlib[bcrypt]>=1.7
 bcrypt>=3.2,<4.0          # passlib[bcrypt] requires bcrypt <4.0
 python-multipart>=0.0.9
 
+# Rate limiting / SaaS surface.
+slowapi>=0.1.9
+
 # Optional: OpenAI provider.
 # openai>=1.0  # uncomment when OPENAI_API_KEY is configured
 

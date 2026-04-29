@@ -62,6 +62,26 @@ class UserRow(Base):
     is_admin      = Column(String(5), default="false")  # "true"/"false" — sqlite compat
 
 
+class AuditLogRow(Base):
+    __tablename__ = "audit_log"
+    id        = Column(String(64), primary_key=True)
+    timestamp = Column(DateTime, server_default=func.now(), index=True)
+    username  = Column(String(64), index=True)
+    action    = Column(String(64), nullable=False)        # login / register / run / view_task
+    target    = Column(String(256), default="")           # task_id, username, etc.
+    ip        = Column(String(64), default="")
+    status    = Column(String(16), default="ok")          # ok / fail / error
+    details   = Column(Text, default="")
+
+
+class QuotaRow(Base):
+    """Daily per-user task counter. Reset by date in app code."""
+    __tablename__ = "quotas"
+    username = Column(String(64), primary_key=True)
+    date_ymd = Column(String(10), primary_key=True)       # "2026-04-29"
+    count    = Column(String(8),  default="0")            # stored as str for sqlite/pg compat
+
+
 # ── engine singleton ─────────────────────────────────────────────────
 
 _engine = None
