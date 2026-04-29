@@ -1,4 +1,4 @@
-"""File-operation tools the autonomous agent is allowed to call.
+"""File-operation + execution tools the autonomous agent is allowed to call.
 
 Each tool is a plain Python function that:
     1. Validates its arguments through ``Sandbox.resolve``
@@ -9,9 +9,18 @@ Failures raise ``SandboxError`` so the agent loop can surface them to
 the model as a structured tool-result error (the model then decides how
 to recover, instead of the loop crashing).
 
+Shell-execution surface (medium-security):
+    * ``run_python`` — runs a .py file inside the sandbox with the same
+      interpreter that launched the server; 30s timeout.
+    * ``run_pytest`` — runs pytest on a path inside the sandbox; 60s timeout.
+    Both operations are executed with cwd=sandbox.root so relative imports
+    resolve correctly, and stdout+stderr are captured and returned to the
+    model (truncated at 8 KB so the context window stays manageable).
+
 What is intentionally NOT exposed to the agent:
-    * shell / subprocess (high-security mode = files only)
-    * network I/O (no ``urllib``, no ``requests``)
+    * arbitrary shell commands (no sh/bash/cmd, no curl, no pip install)
+    * network I/O from agent tools (no urllib, no requests)
+    * deletion of files (no rm / unlink via tools)
     * arbitrary path globs that could enumerate the host filesystem
 
 A future "medium-security" mode can add a ``run_python`` tool wrapped in
@@ -21,6 +30,8 @@ a subprocess sandbox; today's surface is deliberately minimal.
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 from app.sandbox.fs import Sandbox, SandboxError
@@ -159,3 +170,116 @@ def grep(sandbox: Sandbox, pattern: str, path: str = ".") -> str:
     if not matches:
         return "(no matches)"
     return "\n".join(matches)
+
+
+# ── run_python ───────────────────────────────────────────────────────
+
+
+_RUN_TIMEOUT_PYTHON: int = 30   # seconds
+_RUN_TIMEOUT_PYTEST: int = 60
+_RUN_OUTPUT_LIMIT:   int = 8_000   # chars returned to the model
+
+
+def run_python(sandbox: Sandbox, path: str) -> str:
+    """Execute a Python file inside the sandbox and return its output.
+
+    Runs with ``cwd=sandbox.root`` so relative imports resolve. Uses the
+    same Python interpreter that launched the server. Stdout and stderr
+    are captured together and returned (truncated at 8 KB).
+
+    Raises:
+        SandboxError: file not found, not a .py, path escape, or timeout.
+    """
+    target = sandbox.resolve(path)
+    if not target.exists():
+        raise SandboxError(f"run_python: file not found: {path}")
+    if not target.is_file():
+        raise SandboxError(f"run_python: not a file: {path}")
+    if target.suffix.lower() != ".py":
+        raise SandboxError(f"run_python: only .py files allowed, got: {path}")
+
+    return _run_subprocess(
+        [sys.executable, str(target)],
+        cwd=sandbox.root,
+        timeout=_RUN_TIMEOUT_PYTHON,
+        label=f"python {path}",
+    )
+
+
+# ── run_pytest ──────────────────────────────────────────────────────
+
+
+def run_pytest(sandbox: Sandbox, path: str = ".") -> str:
+    """Run pytest on a path inside the sandbox and return the output.
+
+    Args:
+        path: file or directory relative to the sandbox root.
+              Pass "." (default) to run the whole sandbox.
+
+    Raises:
+        SandboxError: path escapes the sandbox or timeout exceeded.
+    """
+    target = sandbox.resolve(path) if path not in ("", ".") else sandbox.root
+    if not target.exists():
+        raise SandboxError(f"run_pytest: path not found: {path}")
+
+    return _run_subprocess(
+        [sys.executable, "-m", "pytest", "-v", "--tb=short", str(target)],
+        cwd=sandbox.root,
+        timeout=_RUN_TIMEOUT_PYTEST,
+        label=f"pytest {path}",
+    )
+
+
+# ── shared subprocess helper ────────────────────────────────────────
+
+
+def _run_subprocess(
+    cmd: list[str],
+    *,
+    cwd: Path,
+    timeout: int,
+    label: str,
+) -> str:
+    """Run ``cmd`` with captured output. Returns combined stdout+stderr."""
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            # Never let the child inherit the parent's environment variables
+            # that might contain secrets (ANTHROPIC_API_KEY, DATABASE_URL …).
+            env={
+                "PATH": _safe_path(),
+                "PYTHONPATH": str(cwd),
+                # Needed on Windows for Python to find itself.
+                "SYSTEMROOT": _env_val("SYSTEMROOT"),
+                "TEMP": _env_val("TEMP"),
+                "TMP":  _env_val("TMP"),
+            },
+        )
+    except subprocess.TimeoutExpired:
+        raise SandboxError(
+            f"{label}: timed out after {timeout}s — increase timeout or simplify the script"
+        )
+    except FileNotFoundError as e:
+        raise SandboxError(f"{label}: interpreter not found — {e}") from e
+
+    out = (result.stdout or "") + (result.stderr or "")
+    header = f"exit_code={result.returncode}\n"
+    body = out if len(out) <= _RUN_OUTPUT_LIMIT else out[: _RUN_OUTPUT_LIMIT - 32] + "\n... (truncated)"
+    return header + body
+
+
+def _safe_path() -> str:
+    """Return a minimal PATH that lets python/pytest find themselves."""
+    import os
+    return os.environ.get("PATH", "")
+
+
+def _env_val(key: str) -> str:
+    """Safely pull an env var (empty string if unset)."""
+    import os
+    return os.environ.get(key, "")

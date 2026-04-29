@@ -20,7 +20,10 @@ def sandbox(tmp_path: Path) -> Sandbox:
 def test_tool_defs_match_documented_surface() -> None:
     """If you add a tool, both the schema list and the dispatcher must agree."""
     schema_names = {t["name"] for t in TOOL_DEFS}
-    assert schema_names == {"read_file", "write_file", "edit_file", "list_dir", "grep"}
+    assert schema_names == {
+        "read_file", "write_file", "edit_file", "list_dir", "grep",
+        "run_python", "run_pytest",
+    }
     for t in TOOL_DEFS:
         assert "description" in t and t["description"]
         assert "input_schema" in t

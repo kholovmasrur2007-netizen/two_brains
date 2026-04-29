@@ -12,6 +12,18 @@ uvicorn>=0.27
 websockets>=12.0
 httpx>=0.27
 
+# Database (SQLite built-in, PostgreSQL needs psycopg2 installed separately).
+sqlalchemy>=2.0
+
+# Authentication (JWT + form data for OAuth2 login).
+python-jose[cryptography]>=3.3
+passlib[bcrypt]>=1.7
+bcrypt>=3.2,<4.0          # passlib[bcrypt] requires bcrypt <4.0
+python-multipart>=0.0.9
+
+# Optional: OpenAI provider.
+# openai>=1.0  # uncomment when OPENAI_API_KEY is configured
+
 # Optional LLM SDK. Imported lazily by app/llm/anthropic_client.py, so it is
 # only required when PLANNER_PROVIDER=anthropic or CRITIC_PROVIDER=anthropic.
 anthropic>=0.40.0

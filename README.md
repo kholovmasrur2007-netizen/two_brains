@@ -182,7 +182,7 @@ python -m app.main "Ship feature X" && deploy.sh || echo "plan blocked"
 pytest -q
 ```
 
-Expected: **142 tests pass**. None hit the network.
+Expected: **183 tests pass**. None hit the network.
 
 ## Using a real LLM
 
@@ -358,62 +358,116 @@ stay optional.
 
 ## Adding another LLM provider
 
-Say you want OpenAI:
+OpenAI is already wired — set `OPENAI_API_KEY` and use
+`PLANNER_PROVIDER=openai` / `CRITIC_PROVIDER=openai`.
 
-1. Create `app/llm/openai_client.py` — subclass `LLMClient`, implement
-   `complete()`, wrap SDK errors as `LLMProviderError`, reject unusable
-   responses as `LLMResponseError`.
-2. Add a branch to `get_llm_client()`:
-   ```python
-   if provider == "openai":
-       from app.llm.openai_client import OpenAIClient
-       from app import config
-       return OpenAIClient(api_key=config.settings.openai_api_key)
-   ```
-3. Register factory entries in `app/brains/__init__.py`:
-   ```python
-   def _openai_planner() -> Planner:
-       from app.llm import get_llm_client
-       return LLMPlannerBrain(llm=get_llm_client("openai"))
-   # same for _openai_critic
-   _PLANNERS["openai"] = _openai_planner
-   _CRITICS["openai"]  = _openai_critic
-   ```
+For a new provider (e.g. local Ollama):
+
+1. Create `app/llm/ollama_client.py` — subclass `LLMClient`, implement
+   `complete()`, wrap errors as `LLMProviderError` / `LLMResponseError`.
+2. Add a branch to `get_llm_client()` in `app/llm/__init__.py`.
+3. Register planner/critic/executor entries in `app/brains/__init__.py`.
 4. Nothing else changes — orchestrator, CLI, memory, tests already work
    through the existing Protocols.
 
+## Authentication
+
+Auth is **disabled by default** so fresh installs work immediately. Enable it in `.env`:
+
+```
+AUTH_ENABLED=true
+USE_DB=true
+SECRET_KEY=your-random-secret-here
+```
+
+On first start with `AUTH_ENABLED=true` and no users in the DB, the server auto-creates
+`admin` / `admin`. Change the password immediately via `POST /auth/register`.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/auth/login` | POST | Exchange credentials for a JWT token |
+| `/auth/register` | POST | Create a new user (admin only) |
+| `/auth/me` | GET | Return current user info |
+| `/auth/status` | GET | Public — whether auth is enabled |
+
+The Web UI shows a login screen automatically when `AUTH_ENABLED=true`.
+
+## Database
+
+By default the web server uses the JSON-file `MemoryStore`.
+Set `USE_DB=true` to switch to **SQLite** (zero-config):
+
+```
+USE_DB=true
+DATABASE_URL=sqlite:///two_brains.db   # default when USE_DB=true
+```
+
+Switch to **PostgreSQL** with one variable:
+
+```
+DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/two_brains
+```
+
+Install the PostgreSQL adapter separately: `pip install psycopg2-binary`.
+
+## Agent tools
+
+The autonomous executor (`executor_provider=agent` or `local-agent`) can call
+7 sandboxed tools, all confined to `workspace/`:
+
+| Tool | Purpose |
+|------|---------|
+| `read_file` | Read a UTF-8 file |
+| `write_file` | Create or overwrite a file |
+| `edit_file` | Replace a unique substring |
+| `list_dir` | List directory entries |
+| `grep` | Regex search across the sandbox |
+| `run_python` | Execute a `.py` file, capture output (30s timeout) |
+| `run_pytest` | Run pytest on a file or directory (60s timeout) |
+
+Shell execution is sandboxed: only `python` and `pytest` are permitted,
+cwd is forced to `workspace/`, and API secrets are stripped from the
+child process environment.
+
 ## Environment variables
 
-All optional; defaults are sensible for local use.
-
-| Variable             | Default          | Purpose                                       |
-|----------------------|------------------|-----------------------------------------------|
-| `LOG_LEVEL`          | `INFO`           | Root logger level                             |
-| `MAX_ITERATIONS`     | `3`              | Cap for the iterative plan→critique→revise loop |
-| `MEMORY_PATH`        | *(unset)*        | JSON file to mirror `MemoryStore` state       |
-| `PLANNER_PROVIDER`   | `deterministic`  | Which planner implementation to build         |
-| `CRITIC_PROVIDER`    | `deterministic`  | Which critic implementation to build          |
-| `EXECUTOR_PROVIDER`  | `deterministic`  | Which executor implementation to build        |
-| `LLM_PROVIDER`       | `none`           | Which LLM backend to use (not wired yet)      |
-| `OPENAI_API_KEY`     | *(unset)*        | Read by future OpenAI client                  |
-| `ANTHROPIC_API_KEY`  | *(unset)*        | Read by `AnthropicClient`                     |
-| `LOCAL_LLM_URL`      | *(unset)*        | Read by future local-model client             |
+| Variable             | Default              | Purpose |
+|----------------------|----------------------|---------|
+| `LOG_LEVEL`          | `INFO`               | Root logger level |
+| `MAX_ITERATIONS`     | `3`                  | Cap for plan→critique→revise loop |
+| `MEMORY_PATH`        | *(unset)*            | JSON memory file (when USE_DB=false) |
+| `USE_DB`             | `false`              | Use SQLite/PostgreSQL instead of JSON |
+| `DATABASE_URL`       | `sqlite:///two_brains.db` | SQLAlchemy database URL |
+| `AUTH_ENABLED`       | `false`              | Require JWT for all API endpoints |
+| `SECRET_KEY`         | *(random)*           | JWT signing key — set in production |
+| `AUTH_TOKEN_EXPIRE_HOURS` | `24`          | JWT token lifetime |
+| `PLANNER_PROVIDER`   | `deterministic`      | Planner implementation |
+| `CRITIC_PROVIDER`    | `deterministic`      | Critic implementation |
+| `EXECUTOR_PROVIDER`  | `deterministic`      | Executor implementation |
+| `ANTHROPIC_API_KEY`  | *(unset)*            | Required for `anthropic` / `agent` providers |
+| `OPENAI_API_KEY`     | *(unset)*            | Required for `openai` / `openai-agent` providers |
+| `OPENAI_MODEL`       | `gpt-4o-mini`        | OpenAI model for planner/critic/executor |
+| `AGENT_WORKSPACE`    | `workspace`          | Sandbox root for the autonomous agent |
+| `AGENT_MODEL`        | `claude-sonnet-4-6`  | Anthropic model for the agent loop |
 
 ## Status
 
-| Component                              | State                     |
-|----------------------------------------|---------------------------|
-| Brain 1 (Planner, deterministic + LLM) | implemented + fallback    |
-| Brain 2 (Critic, deterministic + LLM)  | implemented + fallback    |
-| Brain 3 (Executor, deterministic + LLM)| implemented + fallback    |
-| `MockLLMClient`                        | implemented               |
-| `AnthropicClient`                      | implemented               |
-| Orchestrator + iterative revise loop   | implemented               |
-| Orchestrator event streaming hook      | implemented               |
-| Memory (in-process + JSON)             | implemented               |
-| CLI (run/show/history/clear/demo + --execute) | implemented        |
-| Web UI (FastAPI + WebSocket + HTML)    | implemented               |
-| GitHub Actions CI                      | implemented               |
-| Autonomous agent executor (sandboxed file tools) | implemented + fallback |
-| Shell / subprocess execution           | not yet (high-security mode) |
-| Other LLM providers (OpenAI, local)    | contract ready, not wired |
+| Component | State |
+|-----------|-------|
+| Brain 1 (Planner, deterministic + LLM) | implemented + fallback |
+| Brain 2 (Critic, deterministic + LLM) | implemented + fallback |
+| Brain 3 (Executor, deterministic + LLM + agent + local-agent) | implemented + fallback |
+| OpenAI provider (planner / critic / executor / openai-agent) | implemented |
+| Sandboxed shell tools (run_python, run_pytest) | implemented |
+| SQLite / PostgreSQL memory (SQLMemoryStore) | implemented |
+| JWT authentication (login / register / protect endpoints) | implemented |
+| Web UI login screen | implemented |
+| `MockLLMClient` | implemented |
+| `AnthropicClient` | implemented |
+| `OpenAIClient` | implemented |
+| Orchestrator + iterative revise loop | implemented |
+| Orchestrator event streaming hook | implemented |
+| Memory (in-process + JSON + SQL) | implemented |
+| CLI (run/show/history/clear/demo/agent) | implemented |
+| Web UI (FastAPI + WebSocket + HTML) | implemented |
+| GitHub Actions CI | implemented |

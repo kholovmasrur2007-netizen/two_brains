@@ -84,6 +84,37 @@ button:disabled{opacity:.5;cursor:not-allowed;}
 .recommendation.not-ready{background:rgba(210,153,34,.15);border:1px solid var(--yellow);
                           color:var(--yellow);}
 .empty{color:var(--muted);font-style:italic;font-size:.85rem;}
+
+/* ── Login overlay ──────────────────────────────────────────── */
+.login-overlay{
+  position:fixed;inset:0;background:rgba(13,17,23,.92);backdrop-filter:blur(8px);
+  display:flex;align-items:center;justify-content:center;z-index:999;
+}
+.login-box{
+  background:var(--panel);border:1px solid var(--border);border-radius:14px;
+  padding:40px 48px;width:100%;max-width:380px;box-shadow:0 24px 64px rgba(0,0,0,.6);
+}
+.login-box h2{margin:0 0 6px;font-size:22px;color:var(--fg);}
+.login-box .sub{color:var(--muted);font-size:.9rem;margin-bottom:28px;}
+.login-box label{display:block;font-size:.8rem;color:var(--muted);
+                 font-weight:600;text-transform:uppercase;letter-spacing:.5px;
+                 margin-bottom:4px;}
+.login-box input[type=text],.login-box input[type=password]{
+  width:100%;background:var(--panel-2);color:var(--fg);
+  border:1px solid var(--border);border-radius:6px;padding:.55rem .75rem;
+  font-family:inherit;font-size:.95rem;margin-bottom:16px;
+  transition:border-color .15s;
+}
+.login-box input:focus{outline:none;border-color:var(--accent);}
+.login-box button{width:100%;padding:.6rem;background:var(--accent);
+                  color:#0d1117;border:none;border-radius:7px;font-weight:700;
+                  font-size:1rem;cursor:pointer;margin-top:4px;transition:filter .15s;}
+.login-box button:hover{filter:brightness(1.1);}
+.login-box .err{color:var(--red);font-size:.85rem;margin-top:10px;min-height:20px;}
+.login-box .disabled-note{
+  color:var(--muted);font-size:.8rem;text-align:center;margin-top:16px;
+  padding-top:14px;border-top:1px solid var(--border);
+}
 .tool-call{padding:.5rem;background:var(--panel-2);border-radius:6px;
            margin-bottom:.4rem;border-left:3px solid var(--accent);
            font-family:'Consolas',monospace;font-size:.8rem;}
@@ -104,12 +135,36 @@ button:disabled{opacity:.5;cursor:not-allowed;}
 </head>
 <body>
 
+<!-- Login overlay — shown only when AUTH_ENABLED=true -->
+<div class="login-overlay" id="login-overlay" style="display:none">
+  <div class="login-box">
+    <h2>two_brains</h2>
+    <div class="sub">Введите учётные данные для продолжения</div>
+    <label>Username</label>
+    <input type="text" id="login-user" placeholder="admin" autocomplete="username">
+    <label>Password</label>
+    <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password">
+    <button id="login-btn">Войти</button>
+    <div class="err" id="login-err"></div>
+    <div class="disabled-note" id="auth-off-note" style="display:none">
+      AUTH_ENABLED=false — авторизация отключена, доступ открыт для всех.
+    </div>
+  </div>
+</div>
+
 <header>
   <div>
     <h1>two_brains</h1>
     <div class="sub">Planner → Critic → Executor pipeline, live</div>
   </div>
-  <div class="status" id="connection-status">disconnected</div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span id="current-user" style="font-size:.8rem;color:var(--muted);"></span>
+    <button id="logout-btn" style="display:none;background:transparent;border:1px solid var(--border);
+      color:var(--muted);border-radius:6px;padding:.3rem .6rem;cursor:pointer;font-size:.8rem;">
+      Выйти
+    </button>
+    <div class="status" id="connection-status">disconnected</div>
+  </div>
 </header>
 
 <main>
@@ -176,6 +231,81 @@ button:disabled{opacity:.5;cursor:not-allowed;}
 <script>
 const $ = (id) => document.getElementById(id);
 const events = [];
+
+// ── Auth ───────────────────────────────────────────────────────
+let _token = localStorage.getItem("tb_token") || "";
+let _authEnabled = false;
+
+async function initAuth() {
+  try {
+    const r = await fetch("/auth/status");
+    const j = await r.json();
+    _authEnabled = j.auth_enabled;
+  } catch { _authEnabled = false; }
+
+  if (!_authEnabled) {
+    $("auth-off-note").style.display = "";
+    $("login-overlay").style.display = "none";
+    return;
+  }
+
+  // Verify stored token is still valid.
+  if (_token) {
+    const ok = await _checkToken(_token);
+    if (ok) { _showLoggedIn(ok); return; }
+    _token = "";
+    localStorage.removeItem("tb_token");
+  }
+  $("login-overlay").style.display = "flex";
+}
+
+async function _checkToken(token) {
+  try {
+    const r = await fetch("/auth/me", {headers: {"Authorization": `Bearer ${token}`}});
+    if (r.ok) return (await r.json()).username;
+  } catch {}
+  return null;
+}
+
+function _showLoggedIn(username) {
+  $("login-overlay").style.display = "none";
+  $("current-user").textContent = `👤 ${username}`;
+  $("logout-btn").style.display = "";
+}
+
+$("login-btn").addEventListener("click", async () => {
+  const user = $("login-user").value.trim();
+  const pass = $("login-pass").value;
+  $("login-err").textContent = "";
+  if (!user || !pass) { $("login-err").textContent = "Заполните оба поля."; return; }
+  try {
+    const r = await fetch("/auth/login", {
+      method: "POST",
+      headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      body: `username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`,
+    });
+    if (!r.ok) { $("login-err").textContent = "Неверный логин или пароль."; return; }
+    const j = await r.json();
+    _token = j.access_token;
+    localStorage.setItem("tb_token", _token);
+    _showLoggedIn(j.username);
+  } catch (e) { $("login-err").textContent = `Ошибка: ${e.message}`; }
+});
+
+$("login-pass").addEventListener("keydown", e => { if (e.key === "Enter") $("login-btn").click(); });
+
+$("logout-btn").addEventListener("click", () => {
+  _token = "";
+  localStorage.removeItem("tb_token");
+  $("current-user").textContent = "";
+  $("logout-btn").style.display = "none";
+  $("login-overlay").style.display = "flex";
+});
+
+function _authHeaders() {
+  return _token ? {"Authorization": `Bearer ${_token}`} : {};
+}
+// ── End Auth ───────────────────────────────────────────────────
 
 function setBadge(id, cls, text) {
   const el = $(id);
@@ -263,7 +393,7 @@ function resetPipeline() {
 
 async function loadProviders() {
   try {
-    const res = await fetch("/api/providers");
+    const res = await fetch("/api/providers", {headers: _authHeaders()});
     const j = await res.json();
     // Bias UI defaults toward something that works offline:
     // - planner/critic = mock (gives ready_for_execution=true so the executor fires)
@@ -289,7 +419,7 @@ function fillSelect(id, opts, def) {
 
 async function loadHistory() {
   try {
-    const res = await fetch("/api/history");
+    const res = await fetch("/api/history", {headers: _authHeaders()});
     const rows = await res.json();
     if (!rows.length) {
       $("history-pane").innerHTML = `<div class="empty">no past runs</div>`;
@@ -333,6 +463,7 @@ function startRun() {
       planner_provider:  $("planner").value || null,
       critic_provider:   $("critic").value  || null,
       executor_provider: $("executor").value || null,
+      token: _token || undefined,
     }));
   };
 
@@ -427,8 +558,7 @@ function completeToolCall(ev) {
 }
 
 $("run-btn").addEventListener("click", startRun);
-loadProviders();
-loadHistory();
+initAuth().then(() => { loadProviders(); loadHistory(); });
 </script>
 
 </body>

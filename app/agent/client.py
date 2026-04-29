@@ -194,3 +194,112 @@ class AnthropicAgentClient(AgentClient):
             text="\n".join(text_parts),
             raw={"assistant_content": assistant_blocks},
         )
+
+
+# ── OpenAI Tool-Use implementation (lazy import) ─────────────────────
+
+
+class OpenAIAgentClient(AgentClient):
+    """Tool-use agent client that talks to OpenAI function calling.
+
+    Uses the same ``AgentStep`` contract so the agent loop is unaware of
+    the provider. OpenAI tool_calls live in ``message.tool_calls`` and
+    results are returned as role="tool" messages.
+    """
+
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini") -> None:
+        try:
+            import openai  # noqa: PLC0415
+        except ImportError as e:  # pragma: no cover
+            raise AgentClientError(
+                "openai SDK not installed; pip install openai"
+            ) from e
+        self._sdk = openai
+        self._client = openai.OpenAI(api_key=api_key)
+        self._model = model
+
+    def step(
+        self,
+        *,
+        system: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        max_tokens: int = 1024,
+    ) -> AgentStep:
+        oai_tools = [_to_oai_tool(t) for t in tools]
+        oai_msgs  = [{"role": "system", "content": system}] + _to_oai_messages(messages)
+
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=oai_msgs,
+                tools=oai_tools or None,  # type: ignore[arg-type]
+                max_tokens=max_tokens,
+                temperature=0.0,
+            )
+        except Exception as e:  # noqa: BLE001
+            raise AgentClientError(
+                f"OpenAI API failed: {e.__class__.__name__}: {e}"
+            ) from e
+
+        choice = (response.choices or [None])[0]
+        if choice is None:
+            raise AgentClientError("OpenAI returned no choices")
+
+        msg = choice.message
+        tool_calls: list[ToolCall] = []
+        raw_blocks: list[dict[str, Any]] = []
+
+        for tc in msg.tool_calls or []:
+            import json as _json
+            args = _json.loads(tc.function.arguments or "{}")
+            tool_calls.append(ToolCall(name=tc.function.name, arguments=args))
+            raw_blocks.append({
+                "id": tc.id, "type": "tool_use",
+                "name": tc.function.name, "input": args,
+            })
+
+        text = msg.content or ""
+        if tool_calls:
+            return AgentStep(
+                kind="tool_use",
+                tool_calls=tool_calls,
+                text=text,
+                raw={"assistant_content": raw_blocks},
+            )
+        return AgentStep(kind="final", text=text, raw={"assistant_content": []})
+
+
+def _to_oai_tool(t: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": t["name"],
+            "description": t.get("description", ""),
+            "parameters": t.get("input_schema", {"type": "object", "properties": {}}),
+        },
+    }
+
+
+def _to_oai_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flatten Anthropic-style history to OpenAI Chat format."""
+    out: list[dict[str, Any]] = []
+    for msg in messages:
+        role    = msg.get("role", "user")
+        content = msg.get("content", [])
+        if isinstance(content, str):
+            out.append({"role": role, "content": content})
+            continue
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            btype = block.get("type")
+            if btype == "text":
+                out.append({"role": role, "content": block.get("text", "")})
+            elif btype == "tool_result":
+                out.append({
+                    "role": "tool",
+                    "tool_call_id": block.get("tool_use_id", ""),
+                    "content": str(block.get("content", "")),
+                })
+    return out

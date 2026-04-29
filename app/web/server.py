@@ -2,19 +2,25 @@
 
 REST surface:
 
+    POST /auth/login             get JWT token
+    POST /auth/register          create user (admin only)
+    GET  /auth/status            whether auth is enabled
     GET  /                       single-page UI (static/index.html)
     GET  /api/providers          available planner / critic / executor names
-    GET  /api/history            list of stored task summaries
-    GET  /api/tasks/{task_id}    full FinalResult for a task
-    POST /api/run                run a task, return FinalResult (sync)
+    GET  /api/history            list of stored task summaries  [protected]
+    GET  /api/tasks/{task_id}    full FinalResult for a task    [protected]
+    POST /api/run                run a task, return FinalResult [protected]
 
 WebSocket:
 
-    /ws/run                      run a task with live phase events
+    /ws/run                      run a task with live phase events [protected]
 
-Both ``POST /api/run`` and the WebSocket reuse the same ``TwoBrainOrchestrator``,
-so the live stream is byte-for-byte equivalent to a sync run plus the
-intermediate phase events.
+Auth is opt-in: set AUTH_ENABLED=true in .env to require JWT tokens.
+When disabled (default) all endpoints are freely accessible so fresh
+installs work out of the box.
+
+Storage: JSON file by default.  Set USE_DB=true to switch to SQLite
+(or PostgreSQL via DATABASE_URL=postgresql+psycopg2://...).
 """
 
 from __future__ import annotations
@@ -24,11 +30,12 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.auth import create_first_admin, get_current_user, router as auth_router
 from app.brains import (
     build_critic,
     build_executor,
@@ -104,21 +111,30 @@ class ProvidersResponse(BaseModel):
 # ── shared state ──────────────────────────────────────────────────────
 
 
-def _build_memory() -> MemoryStore:
-    """Single shared MemoryStore for the lifetime of the server."""
+def _build_memory():
+    """Single shared store for the lifetime of the server."""
+    if settings.use_db:
+        from app.db.store import SQLMemoryStore
+        return SQLMemoryStore()
     return MemoryStore(path=settings.memory_path)
 
 
-def create_app(memory: MemoryStore | None = None) -> FastAPI:
-    """Build the FastAPI app. Tests pass an isolated ``MemoryStore``."""
+def create_app(memory=None) -> FastAPI:
+    """Build the FastAPI app. Tests pass an isolated store."""
     app = FastAPI(
         title="two_brains",
         description="Planner → Critic → Executor pipeline with live streaming.",
-        version="1.0.0",
+        version="2.0.0",
     )
 
-    store: MemoryStore = memory if memory is not None else _build_memory()
+    store = memory if memory is not None else _build_memory()
     app.state.memory = store
+
+    # Auth router (login / register / me / status)
+    app.include_router(auth_router)
+
+    # Bootstrap first admin when auth + DB are enabled
+    create_first_admin()
 
     # ── static UI ────────────────────────────────────────────────────
 
@@ -134,7 +150,7 @@ def create_app(memory: MemoryStore | None = None) -> FastAPI:
             )
         return FileResponse(_INDEX_FILE)
 
-    # ── REST: providers ──────────────────────────────────────────────
+    # ── REST: providers (public) ─────────────────────────────────────
 
     @app.get("/api/providers", response_model=ProvidersResponse)
     def providers() -> ProvidersResponse:
@@ -149,10 +165,10 @@ def create_app(memory: MemoryStore | None = None) -> FastAPI:
             ),
         )
 
-    # ── REST: history ────────────────────────────────────────────────
+    # ── REST: history (protected) ────────────────────────────────────
 
     @app.get("/api/history", response_model=list[TaskSummary])
-    def history() -> list[TaskSummary]:
+    def history(_user=Depends(get_current_user)) -> list[TaskSummary]:
         rows: list[TaskSummary] = []
         for tid in store.known_task_ids():
             task = store.get_task(tid)
@@ -169,16 +185,16 @@ def create_app(memory: MemoryStore | None = None) -> FastAPI:
         return rows
 
     @app.get("/api/tasks/{task_id}")
-    def get_task(task_id: str) -> FinalResult:
+    def get_task(task_id: str, _user=Depends(get_current_user)) -> FinalResult:
         result = store.get_result(task_id)
         if result is None:
             raise HTTPException(status_code=404, detail=f"no result for task_id={task_id}")
         return result
 
-    # ── REST: synchronous run ────────────────────────────────────────
+    # ── REST: synchronous run (protected) ────────────────────────────
 
     @app.post("/api/run", response_model=FinalResult)
-    def run(req: RunRequest) -> FinalResult:
+    def run(req: RunRequest, _user=Depends(get_current_user)) -> FinalResult:
         try:
             orchestrator = _make_orchestrator(req, store)
         except ValueError as e:
@@ -200,6 +216,16 @@ def create_app(memory: MemoryStore | None = None) -> FastAPI:
             await _send_error(ws, f"invalid first message: {e}")
             await ws.close()
             return
+
+        # Auth check: if auth is enabled, first message must carry a token.
+        from app.auth.core import _AUTH_ENABLED, _decode_token, _get_user_row
+        if _AUTH_ENABLED:
+            token = payload.get("token") or ""
+            username = _decode_token(token)
+            if not username or (settings.use_db and _get_user_row(username) is None):
+                await _send_error(ws, "Unauthorized — include valid JWT as 'token' field")
+                await ws.close()
+                return
 
         try:
             req = RunRequest.model_validate(payload)

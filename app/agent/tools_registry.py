@@ -16,13 +16,42 @@ from __future__ import annotations
 from typing import Any
 
 from app.sandbox.fs import Sandbox, SandboxError
-from app.sandbox.tools import edit_file, grep, list_dir, read_file, write_file
+from app.sandbox.tools import edit_file, grep, list_dir, read_file, run_pytest, run_python, write_file
 from app.types import ToolCall, ToolResult
 
 # Anthropic Tool-Use schema (https://docs.anthropic.com/en/docs/agents-and-tools/tool-use).
 # Descriptions are read by the model — be precise about what each tool does and what
 # it does NOT do. Required-arg lists keep the model from hallucinating optional flags.
 TOOL_DEFS: list[dict[str, Any]] = [
+    {
+        "name": "run_python",
+        "description": (
+            "Execute a Python (.py) file inside the sandbox and return its stdout+stderr. "
+            "Use this to verify that generated code runs correctly. "
+            "Returns: 'exit_code=N\\n<output>'. exit_code=0 means success."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the .py file relative to the sandbox root."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "run_pytest",
+        "description": (
+            "Run pytest on a file or directory inside the sandbox and return the test output. "
+            "Pass '.' to run all tests. Returns verbose pytest output with exit_code."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Test file or directory; defaults to the sandbox root."},
+            },
+            "required": [],
+        },
+    },
     {
         "name": "read_file",
         "description": (
@@ -110,7 +139,11 @@ def dispatch_tool(call: ToolCall, sandbox: Sandbox) -> ToolResult:
     """
     args = call.arguments or {}
     try:
-        if call.name == "read_file":
+        if call.name == "run_python":
+            output = run_python(sandbox, _str_arg(args, "path"))
+        elif call.name == "run_pytest":
+            output = run_pytest(sandbox, args.get("path", "."))
+        elif call.name == "read_file":
             output = read_file(sandbox, _str_arg(args, "path"))
         elif call.name == "write_file":
             output = write_file(sandbox, _str_arg(args, "path"), _str_arg(args, "content"))

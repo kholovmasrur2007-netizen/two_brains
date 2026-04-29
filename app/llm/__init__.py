@@ -41,6 +41,15 @@ def get_llm_client(provider: str) -> LLMClient:
                 "ANTHROPIC_API_KEY is not set - export it or put it in your .env file"
             )
         return AnthropicClient(api_key=api_key)
+    if provider == "openai":
+        from app import config
+        from app.llm.openai_client import OpenAIClient
+        api_key = config.settings.openai_api_key
+        if not api_key:
+            raise LLMProviderError(
+                "OPENAI_API_KEY is not set - export it or put it in your .env file"
+            )
+        return OpenAIClient(api_key=api_key, model=config.settings.openai_model)
     raise NotImplementedError(
         f"LLM provider {provider!r} is not available yet. "
         "See app/llm/__init__.py for how to register one."

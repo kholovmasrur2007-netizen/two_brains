@@ -28,6 +28,13 @@ class Settings:
     critic_provider:   str = os.getenv("CRITIC_PROVIDER",   "deterministic")
     executor_provider: str = os.getenv("EXECUTOR_PROVIDER", "deterministic")
 
+    # Database URL. SQLite by default — zero-config.
+    # Switch to PostgreSQL: DATABASE_URL=postgresql+psycopg2://user:pass@host/db
+    database_url: str = os.getenv("DATABASE_URL", "sqlite:///two_brains.db")
+
+    # When True, the web server uses SQLMemoryStore instead of the JSON file store.
+    use_db: bool = os.getenv("USE_DB", "false").lower() == "true"
+
     # Sandbox root for the autonomous agent (executor_provider="agent").
     # Resolved relative to the project working directory if not absolute.
     agent_workspace: str = os.getenv("AGENT_WORKSPACE", "workspace")
@@ -44,6 +51,9 @@ class Settings:
     openai_api_key:    str | None = os.getenv("OPENAI_API_KEY")    or None
     anthropic_api_key: str | None = os.getenv("ANTHROPIC_API_KEY") or None
     local_llm_url:     str | None = os.getenv("LOCAL_LLM_URL")     or None
+
+    # Model overrides per provider.
+    openai_model:      str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 
 settings = Settings()

@@ -152,19 +152,45 @@ def _mock_executor() -> Executor:
 
 
 def _anthropic_planner() -> Planner:
-    """LLMPlannerBrain talking to the real Anthropic Claude API.
-
-    Construction fails fast if ``ANTHROPIC_API_KEY`` is not set, so the
-    operator sees a clear error instead of silently falling back.
-    """
     from app.llm import get_llm_client
     return LLMPlannerBrain(llm=get_llm_client("anthropic"))
 
 
 def _anthropic_critic() -> Critic:
-    """LLMCriticBrain talking to the real Anthropic Claude API."""
     from app.llm import get_llm_client
     return LLMCriticBrain(llm=get_llm_client("anthropic"))
+
+
+def _openai_planner() -> Planner:
+    from app.llm import get_llm_client
+    return LLMPlannerBrain(llm=get_llm_client("openai"))
+
+
+def _openai_critic() -> Critic:
+    from app.llm import get_llm_client
+    return LLMCriticBrain(llm=get_llm_client("openai"))
+
+
+def _openai_executor() -> Executor:
+    from app.llm import get_llm_client
+    return LLMExecutorBrain(llm=get_llm_client("openai"))
+
+
+def _openai_agent_executor() -> Executor:
+    """Autonomous agent with OpenAI function calling + sandbox."""
+    from app import config
+    from app.agent.client import AgentClientError, OpenAIAgentClient
+    from app.sandbox.fs import Sandbox
+
+    api_key = config.settings.openai_api_key
+    if not api_key:
+        raise AgentClientError(
+            "OPENAI_API_KEY is not set - export it or put it in your .env file"
+        )
+    return AgentExecutorBrain(
+        client=OpenAIAgentClient(api_key=api_key, model=config.settings.openai_model),
+        sandbox=Sandbox(config.settings.agent_workspace),
+    )
 
 
 def _anthropic_executor() -> Executor:
@@ -222,12 +248,14 @@ _PLANNERS: dict[str, Callable[[], Planner]] = {
     "deterministic": PlannerBrain,
     "mock":          _mock_planner,
     "anthropic":     _anthropic_planner,
+    "openai":        _openai_planner,
 }
 
 _CRITICS: dict[str, Callable[[], Critic]] = {
     "deterministic": CriticBrain,
     "mock":          _mock_critic,
     "anthropic":     _anthropic_critic,
+    "openai":        _openai_critic,
 }
 
 _EXECUTORS: dict[str, Callable[[], Executor]] = {
@@ -236,6 +264,8 @@ _EXECUTORS: dict[str, Callable[[], Executor]] = {
     "anthropic":     _anthropic_executor,
     "agent":         _agent_executor,
     "local-agent":   _local_agent_executor,
+    "openai":        _openai_executor,
+    "openai-agent":  _openai_agent_executor,
 }
 
 
