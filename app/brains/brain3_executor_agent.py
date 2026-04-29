@@ -20,6 +20,7 @@ Safety bars (high-security mode):
 
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
 from app.agent.client import (
@@ -49,6 +50,12 @@ _log = get_logger(__name__)
 # work (read a few files, write a few, verify) while still being a hard
 # wall against runaway loops.
 MAX_ITERATIONS: int = 24
+
+# Wall-clock cap: an agent that thinks for more than 5 minutes is broken,
+# stuck, or burning money — abort and fall back to deterministic. We use
+# a sync time-check inside the loop instead of asyncio.wait_for so the
+# whole orchestrator stack stays synchronous.
+DEFAULT_TIMEOUT_SECONDS: float = 300.0
 
 # Truncate tool output before showing it back to the model — keeps each
 # turn cheap and prevents pathological grep results from blowing context.
@@ -94,12 +101,14 @@ class AgentExecutorBrain:
         *,
         fallback: Executor | None = None,
         max_iterations: int = MAX_ITERATIONS,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         on_event: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.client = client
         self.sandbox = sandbox
         self.fallback: Executor = fallback or ExecutorBrain()
         self.max_iterations = max_iterations
+        self.timeout_seconds = timeout_seconds
         self.on_event = on_event
 
     # ── public API ───────────────────────────────────────────────────
@@ -140,8 +149,15 @@ class AgentExecutorBrain:
             }
         ]
         trace = AgentTrace()
+        deadline = time.monotonic() + self.timeout_seconds
 
         for iteration in range(1, self.max_iterations + 1):
+            if time.monotonic() >= deadline:
+                trace.iterations = iteration - 1
+                trace.halted_reason = (
+                    f"timeout: agent exceeded {self.timeout_seconds:.0f}s wall clock"
+                )
+                return trace
             step = self.client.step(
                 system=_SYSTEM_PROMPT,
                 messages=messages,

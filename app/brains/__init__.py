@@ -27,6 +27,7 @@ from app.brains.brain1_planner import PlannerBrain
 from app.brains.brain1_planner_llm import LLMPlannerBrain
 from app.brains.brain2_critic import CriticBrain
 from app.brains.brain2_critic_llm import LLMCriticBrain
+from app.brains.brain2_critic_safety import SafetyCritic
 from app.brains.brain3_executor import ExecutorBrain
 from app.brains.brain3_executor_agent import AgentExecutorBrain
 from app.brains.brain3_executor_llm import LLMExecutorBrain
@@ -256,6 +257,7 @@ _CRITICS: dict[str, Callable[[], Critic]] = {
     "mock":          _mock_critic,
     "anthropic":     _anthropic_critic,
     "openai":        _openai_critic,
+    "safety":        SafetyCritic,
 }
 
 _EXECUTORS: dict[str, Callable[[], Executor]] = {

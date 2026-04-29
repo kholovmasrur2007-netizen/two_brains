@@ -74,9 +74,21 @@ class TwoBrainOrchestrator:
         critic: Critic | None = None,
         executor: Executor | None = None,
         memory: MemoryStore | None = None,
+        *,
+        enable_dual_critic: bool = True,
+        safety_critic: Critic | None = None,
     ) -> None:
         self.planner: Planner = planner or build_planner(config.settings.planner_provider)
         self.critic:  Critic  = critic  or build_critic(config.settings.critic_provider)
+        # Dual-critic mode: a deterministic SafetyCritic runs alongside the
+        # primary critic and the orchestrator combines both verdicts. The
+        # combined plan inherits the *worse* of the two scores so safety
+        # can never be overridden by a confident-sounding correctness pass.
+        self.enable_dual_critic: bool = enable_dual_critic
+        if enable_dual_critic:
+            self.safety_critic: Critic = safety_critic or build_critic("safety")
+        else:
+            self.safety_critic = None  # type: ignore[assignment]
         # The executor is built lazily — most callers (CLI without --execute,
         # tests, the show/history commands) never need one, so we avoid
         # importing the LLM SDK on construction.
@@ -133,8 +145,8 @@ class TwoBrainOrchestrator:
         emit("plan_ready", iteration=1, plan=plan.model_dump())
 
         emit("critic_started", iteration=1)
-        self._log.info("brain2: critiquing...")
-        critique = self.critic.review_plan(plan)
+        self._log.info("brain2: critiquing... (dual=%s)", self.enable_dual_critic)
+        critique = self._review(plan)
         self.memory.save_critique(critique)
         self._log.info(
             "brain2: done score=%d judgement=%s",
@@ -161,7 +173,7 @@ class TwoBrainOrchestrator:
             emit("plan_ready", iteration=next_iter, plan=plan.model_dump())
 
             emit("critic_started", iteration=next_iter)
-            critique = self.critic.review_plan(plan)
+            critique = self._review(plan)
             self.memory.save_critique(critique)
             iterations = next_iter
             self._log.info(
@@ -233,6 +245,46 @@ class TwoBrainOrchestrator:
             except Exception as e:  # noqa: BLE001 - listener must not crash the pipeline
                 self._log.warning("on_event listener raised %s: %s", e.__class__.__name__, e)
         return _emit
+
+    # ── dual-critic combiner ──────────────────────────────────────────
+
+    def _review(self, plan):
+        """Run primary + safety critic and combine verdicts.
+
+        The combined critique inherits:
+            * ``overall_score`` = ``min(primary, safety)``
+            * weaknesses / missing_elements / contradictions / risk_flags
+              concatenated (primary first, safety appended)
+            * strengths from primary only (safety only emits a positive
+              line when nothing was found)
+            * ``final_judgement`` derived from the combined score so the
+              orchestrator's existing thresholds keep working.
+        """
+        primary = self.critic.review_plan(plan)
+        if not self.enable_dual_critic or self.safety_critic is None:
+            return primary
+        safety = self.safety_critic.review_plan(plan)
+
+        combined_score = min(primary.overall_score, safety.overall_score)
+        if combined_score >= 85:
+            judgement = "accepted"
+        elif combined_score >= 70:
+            judgement = "needs_minor_revision"
+        elif combined_score >= 40:
+            judgement = "needs_major_revision"
+        else:
+            judgement = "rejected"
+
+        return primary.model_copy(update={
+            "overall_score":  combined_score,
+            "weaknesses":     list(primary.weaknesses) + list(safety.weaknesses),
+            "missing_elements": list(primary.missing_elements) + list(safety.missing_elements),
+            "contradictions": list(primary.contradictions) + list(safety.contradictions),
+            "risk_flags":     list(primary.risk_flags) + list(safety.risk_flags),
+            "improvement_suggestions":
+                list(primary.improvement_suggestions) + list(safety.improvement_suggestions),
+            "final_judgement": judgement,
+        })
 
     # ── lazy executor accessor ────────────────────────────────────────
 

@@ -1,8 +1,45 @@
-# two_brains
+# two_brains v3.0 — самый безопасный AI-агент в мире
 
 [![tests](https://github.com/kholovmasrur2007-netizen/two_brains/actions/workflows/tests.yml/badge.svg)](https://github.com/kholovmasrur2007-netizen/two_brains/actions/workflows/tests.yml)
 [![python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![release](https://img.shields.io/github/v/release/kholovmasrur2007-netizen/two_brains)](https://github.com/kholovmasrur2007-netizen/two_brains/releases)
+[![docker](https://img.shields.io/badge/docker-compose-blue.svg)](docker-compose.yml)
+[![tests-count](https://img.shields.io/badge/tests-228%20green-brightgreen.svg)](#test)
+
+## Установка за 2 минуты
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kholovmasrur2007-netizen/two_brains/main/install.sh | bash
+```
+
+Или вручную:
+
+```bash
+git clone https://github.com/kholovmasrur2007-netizen/two_brains
+cd two_brains
+chmod +x install.sh && ./install.sh
+```
+
+Установщик клонирует репо, создаёт `.env`, поднимает Docker-стек
+(app + Postgres + nginx) и открывает доступ на `https://localhost`.
+
+## Чем мы отличаемся от других
+
+| Фича                          | two_brains v3.0 | AutoGPT | BabyAGI | LangChain Agents |
+|-------------------------------|:---:|:---:|:---:|:---:|
+| **Двойной критик** (correctness + safety) | ✅ | ❌ | ❌ | ❌ |
+| Защитный bar `score ≥ 85`      | ✅ | ❌ | ❌ | ❌ |
+| Песочница ФС с защитой от traversal | ✅ | ❌ | ❌ | ⚠️ optional |
+| Per-user изоляция workspace    | ✅ | ❌ | ❌ | ❌ |
+| Wall-clock 300s timeout        | ✅ | ❌ | ❌ | ⚠️ |
+| Disk-space pre-flight check    | ✅ | ❌ | ❌ | ❌ |
+| Web UI с лайв-стримом          | ✅ | ⚠️ | ❌ | ❌ |
+| WebSocket rate limit           | ✅ | ❌ | ❌ | ❌ |
+| Audit log + Prometheus metrics | ✅ | ❌ | ❌ | ❌ |
+| One-line install (Docker+nginx)| ✅ | ❌ | ❌ | ❌ |
+| 228 тестов, CI зелёный         | ✅ | ⚠️ | ❌ | ⚠️ |
+| Open-source MIT                | ✅ | ✅ | ✅ | ✅ |
 
 A small 3-brain pipeline that turns a plain-text task into a structured
 plan, critiques it, optionally executes it, and exposes the whole flow

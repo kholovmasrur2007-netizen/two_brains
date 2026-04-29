@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import asyncio
 import textwrap
+import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +64,16 @@ _log = get_logger(__name__)
 
 _STATIC_DIR: Path = Path(__file__).parent / "static"
 _INDEX_FILE: Path = _STATIC_DIR / "index.html"
+
+
+# ── WebSocket per-IP rate limit ──────────────────────────────────────
+# slowapi covers REST; for /ws/run we keep a tiny sliding-window counter
+# in memory. WS_LIMIT connections per IP per WS_WINDOW seconds. This is
+# a process-local cap — fine for one-replica deployments; for multi-replica
+# put this behind a shared Redis if it ever matters.
+ws_rate_limits: dict[str, list[float]] = defaultdict(list)
+WS_LIMIT: int = 10
+WS_WINDOW: int = 60
 
 
 # ── request / response shapes ─────────────────────────────────────────
@@ -284,6 +296,17 @@ def create_app(memory=None) -> FastAPI:
 
     @app.websocket("/ws/run")
     async def ws_run(ws: WebSocket) -> None:
+        # Per-IP sliding-window rate limit. The slowapi middleware does
+        # not see WebSocket upgrades, so we enforce it manually here.
+        client_ip = ws.client.host if ws.client else "anonymous"
+        now = time.time()
+        bucket = ws_rate_limits[client_ip]
+        ws_rate_limits[client_ip] = [t for t in bucket if now - t < WS_WINDOW]
+        if len(ws_rate_limits[client_ip]) >= WS_LIMIT:
+            await ws.close(code=1008, reason="Rate limit exceeded")
+            return
+        ws_rate_limits[client_ip].append(now)
+
         await ws.accept()
         try:
             payload = await ws.receive_json()

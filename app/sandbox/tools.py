@@ -30,6 +30,7 @@ a subprocess sandbox; today's surface is deliberately minimal.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -65,15 +66,34 @@ def read_file(sandbox: Sandbox, path: str) -> str:
 
 
 def write_file(sandbox: Sandbox, path: str, content: str) -> str:
-    """Create or overwrite ``path`` with ``content``. Parent dirs are created."""
+    """Create or overwrite ``path`` with ``content``. Parent dirs are created.
+
+    Refuses early when:
+        * ``content`` is not a string
+        * encoded size exceeds ``_MAX_FILE_BYTES`` (200 KB)
+        * the underlying filesystem doesn't have enough free space —
+          this is the safety net for runaway agents that could otherwise
+          fill the host disk.
+    """
     if not isinstance(content, str):
         raise SandboxError("write_file: content must be a string")
-    if len(content.encode("utf-8")) > _MAX_FILE_BYTES:
+    encoded_size = len(content.encode("utf-8"))
+    if encoded_size > _MAX_FILE_BYTES:
         raise SandboxError(
             f"refusing to write more than {_MAX_FILE_BYTES} bytes"
         )
     target = sandbox.resolve(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    # Disk-space pre-flight. shutil.disk_usage works on Windows and POSIX.
+    try:
+        free = shutil.disk_usage(sandbox.root).free
+    except OSError as e:  # pragma: no cover - extremely rare
+        raise SandboxError(f"write_file: disk_usage failed: {e}") from e
+    if encoded_size > free:
+        raise SandboxError(
+            f"Недостаточно места: нужно {encoded_size} байт, "
+            f"свободно {free} байт"
+        )
     target.write_text(content, encoding="utf-8")
     return f"wrote {len(content)} chars to {sandbox.relative(target)}"
 

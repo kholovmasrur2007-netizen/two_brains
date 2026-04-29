@@ -26,6 +26,16 @@ def test_deterministic_provider_is_registered() -> None:
     assert "deterministic" in registered_executor_providers()
 
 
+def test_safety_critic_provider_is_registered() -> None:
+    """v3.0: the SafetyCritic provider must be discoverable through the factory."""
+    from app.brains.brain2_critic_safety import SafetyCritic
+
+    assert "safety" in registered_critic_providers()
+    critic = build_critic("safety")
+    assert isinstance(critic, SafetyCritic)
+    assert isinstance(critic, Critic)
+
+
 def test_build_planner_default_returns_deterministic_brain() -> None:
     planner = build_planner()
     assert isinstance(planner, PlannerBrain)
