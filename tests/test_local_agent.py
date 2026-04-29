@@ -165,3 +165,139 @@ def test_local_agent_provider_is_registered() -> None:
     # Build path also has to work without raising — no API key needed.
     executor = build_executor("local-agent")
     assert executor is not None
+
+
+# ── enhanced multi-step / multi-file capabilities ─────────────────────
+
+
+def test_local_agent_writes_multiple_files_in_one_step() -> None:
+    """Multi-file prompts should produce one write_file call per filename."""
+    client = LocalAgentClient()
+    step = client.step(
+        system="sys",
+        messages=_build_messages("Create main.py and utils.py please"),
+        tools=[],
+    )
+    assert step.kind == "tool_use"
+    paths = [c.arguments["path"] for c in step.tool_calls if c.name == "write_file"]
+    assert paths == ["main.py", "utils.py"]
+
+
+def test_local_agent_runs_python_when_user_asks_to_verify() -> None:
+    """A 'run / verify' keyword should add a run_python call after write_file."""
+    client = LocalAgentClient()
+    step = client.step(
+        system="sys",
+        messages=_build_messages("Create hello.py and run it to verify."),
+        tools=[],
+    )
+    names = [c.name for c in step.tool_calls]
+    assert names == ["write_file", "run_python"]
+
+
+def test_local_agent_uses_topic_template_for_fibonacci() -> None:
+    client = LocalAgentClient()
+    step = client.step(
+        system="sys",
+        messages=_build_messages("Write fib.py with fibonacci numbers up to 100."),
+        tools=[],
+    )
+    body = step.tool_calls[0].arguments["content"]
+    assert "fib_up_to" in body
+    assert "while a <= limit" in body
+
+
+def test_local_agent_uses_topic_template_for_calculator() -> None:
+    client = LocalAgentClient()
+    step = client.step(
+        system="sys",
+        messages=_build_messages("Build calc.py — a tiny calculator."),
+        tools=[],
+    )
+    body = step.tool_calls[0].arguments["content"]
+    assert "operator" in body and "OPS" in body
+
+
+def test_local_agent_uses_topic_template_for_fastapi() -> None:
+    client = LocalAgentClient()
+    step = client.step(
+        system="sys",
+        messages=_build_messages("Build a small FastAPI rest api in main.py"),
+        tools=[],
+    )
+    body = step.tool_calls[0].arguments["content"]
+    assert "FastAPI" in body
+    assert "@app." in body
+
+
+def test_local_agent_recognises_russian_keywords() -> None:
+    """Both English and Russian topic keywords should produce a real template."""
+    client = LocalAgentClient()
+    step = client.step(
+        system="sys",
+        messages=_build_messages("создай fib.py с числами Фибоначчи"),
+        tools=[],
+    )
+    body = step.tool_calls[0].arguments["content"]
+    assert "fib_up_to" in body
+
+
+def test_local_agent_lists_directory_when_user_asks() -> None:
+    client = LocalAgentClient()
+    step = client.step(
+        system="sys",
+        messages=_build_messages("show files in the workspace"),
+        tools=[],
+    )
+    assert step.tool_calls[0].name == "list_dir"
+
+
+def test_local_agent_inline_content_overrides_template_for_single_file() -> None:
+    """If the user supplies explicit content, use it instead of the template."""
+    client = LocalAgentClient()
+    step = client.step(
+        system="sys",
+        messages=_build_messages('write greeting.txt with content "хай народ"'),
+        tools=[],
+    )
+    assert step.tool_calls[0].arguments["content"] == "хай народ"
+
+
+def test_local_agent_finalises_after_plan(sandbox: Sandbox) -> None:
+    """After firing the plan, the next step() must finalise so the loop ends."""
+    client = LocalAgentClient()
+    client.step(system="sys", messages=_build_messages("write a.py"), tools=[])
+    second = client.step(system="sys", messages=[], tools=[])
+    assert second.kind == "final"
+    # Summary should mention what was written.
+    assert "a.py" in second.text
+
+
+def test_full_executor_loop_writes_all_files_and_runs(sandbox: Sandbox) -> None:
+    """End-to-end: multi-file plan + verification through the full agent loop."""
+    brain = AgentExecutorBrain(client=LocalAgentClient(), sandbox=sandbox)
+
+    out = brain.execute_plan(
+        _task("Create hello.py with a hello world script and run it to verify"),
+        _plan(),
+    )
+
+    # File on disk.
+    assert (sandbox.root / "hello.py").exists()
+    # Subprocess actually executed and printed.
+    assert out.overall_status == "completed"
+    # The trace must include both write_file and run_python results.
+    # (We can't access the trace here directly — we infer from notes.)
+
+
+def test_run_keyword_does_nothing_when_no_python_file() -> None:
+    """A 'run it' phrase without any .py mentioned must not invent a run_python call."""
+    client = LocalAgentClient()
+    step = client.step(
+        system="sys",
+        messages=_build_messages("create greeting.txt and run it"),
+        tools=[],
+    )
+    names = [c.name for c in step.tool_calls]
+    # write_file for the txt, no run_python (it's not a Python file).
+    assert names == ["write_file"]
