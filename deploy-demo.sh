@@ -93,14 +93,30 @@ if [ ! -f ".env" ]; then
     echo -e "${GREEN}.env создан и подправлен.${NC}"
 fi
 
-# ── 4. Self-signed cert if no real one yet ──────────────────────────
+# ── 4. TLS cert: self-signed for first run, Let's Encrypt for prod ───
 if [ ! -f "nginx/certs/server.crt" ] || [ ! -f "nginx/certs/server.key" ]; then
     echo "Генерирую самоподписанный TLS-cert ..."
     mkdir -p nginx/certs
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout nginx/certs/server.key \
         -out    nginx/certs/server.crt \
-        -subj   "/CN=demo.two-brains.ai" 2>/dev/null
+        -subj   "/CN=${DEMO_DOMAIN}" 2>/dev/null
+
+    cat <<EOF
+
+${YELLOW}⚠ Сейчас работает self-signed cert (браузер ругнётся).${NC}
+Чтобы получить настоящий Let's Encrypt cert (когда DNS уже указывает на этот VPS):
+
+    sudo apt install -y certbot
+    sudo certbot certonly --standalone --preferred-challenges http \\
+         -d ${DEMO_DOMAIN} -m admin@${DEMO_DOMAIN} --agree-tos -n
+    sudo cp /etc/letsencrypt/live/${DEMO_DOMAIN}/fullchain.pem nginx/certs/server.crt
+    sudo cp /etc/letsencrypt/live/${DEMO_DOMAIN}/privkey.pem   nginx/certs/server.key
+    docker compose restart nginx
+
+Cron для авто-продления (раз в сутки):
+    echo "0 3 * * * certbot renew --quiet --post-hook 'docker compose -f /opt/two-brains/docker-compose.yml restart nginx'" | sudo tee -a /etc/crontab
+EOF
 fi
 
 # ── 5. Bring it up ───────────────────────────────────────────────────
