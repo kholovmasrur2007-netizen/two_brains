@@ -28,7 +28,32 @@
 
 ## Демо
 
-Публичная демка на: 👉 **[demo.two-brains.ai](https://demo.two-brains.ai)**
+Скриншоты Web UI на боевом запросе
+**`Write fib.py with fibonacci numbers up to 100 and run it to verify`** —
+агент сам пишет файл, сам его запускает, сам ловит вывод:
+
+![Pipeline — три мозга загораются по очереди](docs/screenshots/03-pipeline.png)
+
+| Plan | Critique |
+|------|----------|
+| ![Plan](docs/screenshots/05-plan.png) | ![Critique](docs/screenshots/06-critique.png) |
+
+Реальные tool-calls агента (`write_file → run_python` со стримом stdout):
+
+![Agent — live tool calls](docs/screenshots/04-tool-calls.png)
+
+Полный экран с задачей, бейджами Brain 1/2/3, всеми артефактами и
+карточками tool-calls:
+
+![Task completed](docs/screenshots/02-task-completed.png)
+
+Скриншоты сгенерированы через Playwright из настоящей сессии Web UI —
+скрипт лежит в [`docs/capture_demo.py`](docs/capture_demo.py), любой
+коммит может пересобрать их одной командой.
+
+---
+
+**Публичная демка** будет на: 👉 **[demo.two-brains.ai](https://demo.two-brains.ai)**
 
 > **⚠ Деплой инструкция:** для запуска под этим доменом нужно
 > направить DNS A-запись на VPS (см. [`deploy-demo.sh`](deploy-demo.sh)).
