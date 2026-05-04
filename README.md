@@ -89,6 +89,18 @@ Docker-стек (app + Postgres + nginx) и открывает интерфей�
 📦 **Готов** — собственный Telegram-бот ставит задачи в API two_brains
 и отвечает прямо в чате.
 
+### Как это выглядит
+
+| Агент создаёт файл | Свободный чат `/admin` |
+|--------------------|------------------------|
+| ![Task](docs/screenshots/telegram-01-task.png) | ![Admin chat](docs/screenshots/telegram-02-admin.png) |
+
+| Защитный отказ от опасного | Сервис-команды |
+|---------------------------|----------------|
+| ![Safety refusal](docs/screenshots/telegram-03-safety.png) | ![Service commands](docs/screenshots/telegram-04-service.png) |
+
+
+
 ```bash
 # 1. Получи токен у @BotFather
 # 2. Допиши в .env:

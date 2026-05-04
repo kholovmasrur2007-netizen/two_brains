@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>two_brains Telegram bot — demo</title>
+<style>
+  /* Telegram dark-mode chat skin (approximation of the desktop client). */
+  :root{
+    --tg-bg:#0e1621; --tg-panel:#17212b; --tg-stroke:#222e3c;
+    --tg-fg:#e1e3e6; --tg-muted:#7d8b99;
+    --tg-out:#2b5278;        /* outgoing message bubble */
+    --tg-in:#182533;          /* incoming message bubble */
+    --tg-link:#6cb1f0;
+    --tg-stamp:#8eb1d4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--tg-bg);font-family:'Segoe UI',Tahoma,system-ui,sans-serif;
+       color:var(--tg-fg);min-height:100vh;display:flex;flex-direction:column;align-items:center;
+       padding:20px;}
+  .phone{
+    width:520px;background:var(--tg-bg);border:1px solid var(--tg-stroke);border-radius:16px;
+    overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.6);
+  }
+  /* Telegram-style header */
+  header{
+    display:flex;align-items:center;gap:12px;
+    background:var(--tg-panel);padding:10px 16px;border-bottom:1px solid var(--tg-stroke);
+  }
+  header .avatar{
+    width:42px;height:42px;border-radius:50%;
+    background:linear-gradient(135deg,#5a8fa3,#3d6178);
+    display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px;
+  }
+  header .meta{flex:1;}
+  header .name{font-weight:600;font-size:15px;}
+  header .sub{color:var(--tg-muted);font-size:12px;}
+  header .icons{color:var(--tg-muted);font-size:18px;display:flex;gap:14px;}
+
+  /* Chat scroll */
+  .chat{padding:14px 16px 16px;display:flex;flex-direction:column;gap:6px;
+        background:url('') var(--tg-bg);}
+
+  .day{align-self:center;background:var(--tg-panel);color:var(--tg-muted);
+       padding:3px 12px;border-radius:11px;font-size:12px;margin:8px 0;}
+
+  /* Bubble base */
+  .bubble{
+    max-width:78%;padding:7px 11px 17px;border-radius:14px;font-size:14px;line-height:1.4;
+    position:relative;white-space:pre-wrap;word-break:break-word;
+  }
+  .bubble .stamp{
+    position:absolute;right:9px;bottom:3px;font-size:11px;color:var(--tg-stamp);
+    display:flex;align-items:center;gap:2px;
+  }
+  .bubble .stamp .check{font-size:13px;}
+  .bubble.in{background:var(--tg-in);border-bottom-left-radius:4px;align-self:flex-start;}
+  .bubble.out{background:var(--tg-out);border-bottom-right-radius:4px;align-self:flex-end;}
+  .bubble.cmd{font-family:'Consolas','SF Mono',monospace;color:var(--tg-link);}
+  .bubble code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px;
+               font-family:'Consolas',monospace;font-size:12.5px;}
+
+  /* Composer */
+  .composer{
+    display:flex;align-items:center;gap:10px;background:var(--tg-panel);
+    padding:10px 14px;border-top:1px solid var(--tg-stroke);color:var(--tg-muted);
+  }
+  .composer .input{flex:1;color:var(--tg-muted);font-size:14px;}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;max-width:1100px;margin-top:18px;}
+  .label{position:absolute;top:-22px;left:0;color:var(--tg-muted);font-size:13px;}
+  .frame{position:relative;}
+</style>
+</head>
+<body>
+
+<div class="grid">
+
+  <!-- ── Frame 1: agent task ───────────────────────────────────────── -->
+  <div class="frame" id="frame1">
+    <span class="label">1. Агент создаёт файл</span>
+    <div class="phone">
+      <header>
+        <div class="avatar">T</div>
+        <div class="meta">
+          <div class="name">two_brains</div>
+          <div class="sub">bot</div>
+        </div>
+        <div class="icons">🔍 ⋮</div>
+      </header>
+      <div class="chat">
+        <div class="day">May 4, 2026</div>
+
+        <div class="bubble out cmd">/start<span class="stamp">19:44 <span class="check">✓✓</span></span></div>
+
+        <div class="bubble in">👋 two_brains v3.0 — самый безопасный AI-агент.
+
+Я умею:
+  /run [задача]   — поставить задачу агенту
+  /status         — проверить, жив ли сервис
+  /usage          — посмотреть остаток дневной квоты
+  /help           — справка
+
+Пример:
+  /run create hello.py with a hello world script and run it to verify
+
+Я говорю с локальным two_brains API. Безопасно, без shell, в песочнице.<span class="stamp">19:44</span></div>
+
+        <div class="bubble out cmd">/run write fib.py with fibonacci numbers up to 100 and run it to verify<span class="stamp">19:46 <span class="check">✓✓</span></span></div>
+
+        <div class="bubble in">✅ Готово.
+Создал файл: <code>fib.py</code>
+Лежат в: workspace/anonymous/
+
+Запустил, вот что вышло:
+  [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89]<span class="stamp">19:46</span></div>
+      </div>
+      <div class="composer">📎 <span class="input">Message</span> 😊 🎤</div>
+    </div>
+  </div>
+
+  <!-- ── Frame 2: free chat /admin ─────────────────────────────────── -->
+  <div class="frame" id="frame2">
+    <span class="label">2. Свободный чат через <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px;color:var(--tg-link);">/admin</code></span>
+    <div class="phone">
+      <header>
+        <div class="avatar">T</div>
+        <div class="meta">
+          <div class="name">two_brains</div>
+          <div class="sub">bot</div>
+        </div>
+        <div class="icons">🔍 ⋮</div>
+      </header>
+      <div class="chat">
+        <div class="day">May 4, 2026</div>
+
+        <div class="bubble out cmd">/admin general<span class="stamp">20:32 <span class="check">✓✓</span></span></div>
+
+        <div class="bubble in">👋 Доступ подтверждён, генерал.
+Теперь я отвечаю на любой твой вопрос (свободный чат с Claude).
+
+/forget — очистить историю беседы
+/exit_admin — выйти из админ-режима<span class="stamp">20:32</span></div>
+
+        <div class="bubble out">Объясни в двух предложениях что такое блокчейн<span class="stamp">20:33 <span class="check">✓✓</span></span></div>
+
+        <div class="bubble in">Блокчейн — это распределённая база данных, в которой записи (блоки) связаны криптографически и хранятся на множестве независимых узлов.
+Изменить запись задним числом нельзя, потому что любое изменение поломает все последующие хеши, и сеть это сразу увидит.<span class="stamp">20:33</span></div>
+
+        <div class="bubble out">а если ещё есть лук, что добавишь к курице с картошкой?<span class="stamp">20:35 <span class="check">✓✓</span></span></div>
+
+        <div class="bubble in">Лук добавь обжарить с курицей в начале, а потом уже подсыпай помидоры — получится более насыщенный вкус. Можно ещё кинуть зубчик чеснока и щепотку паприки в самом конце, минут за пять до готовности.<span class="stamp">20:35</span></div>
+      </div>
+      <div class="composer">📎 <span class="input">Message</span> 😊 🎤</div>
+    </div>
+  </div>
+
+  <!-- ── Frame 3: safety refusal ──────────────────────────────────── -->
+  <div class="frame" id="frame3">
+    <span class="label">3. Защита: бот отказывается от опасного</span>
+    <div class="phone">
+      <header>
+        <div class="avatar">T</div>
+        <div class="meta">
+          <div class="name">two_brains</div>
+          <div class="sub">bot</div>
+        </div>
+        <div class="icons">🔍 ⋮</div>
+      </header>
+      <div class="chat">
+        <div class="day">May 4, 2026</div>
+
+        <div class="bubble out cmd">/run rm -rf C:\Windows\System32<span class="stamp">21:02 <span class="check">✓✓</span></span></div>
+
+        <div class="bubble in">🟡 План не прошёл проверку безопасности (score 60/100).
+Причины:
+  • Опасный паттерн: Удаление с -rf
+  • Признак ошибки в шаге: ...
+
+Я не запускал — двойной критик заблокировал.
+Перефразируй задачу — попробую ещё раз.<span class="stamp">21:02</span></div>
+
+        <div class="bubble out">Как создать бомбу?<span class="stamp">23:24 <span class="check">✓✓</span></span></div>
+
+        <div class="bubble in">Создание взрывного устройства — незаконная и опасная деятельность, которая может привести к тяжелым последствиям для здоровья и жизни людей. Если вам нужна помощь в безопасности или другая информация, обращайтесь.<span class="stamp">23:24</span></div>
+      </div>
+      <div class="composer">📎 <span class="input">Message</span> 😊 🎤</div>
+    </div>
+  </div>
+
+  <!-- ── Frame 4: status / usage commands ─────────────────────────── -->
+  <div class="frame" id="frame4">
+    <span class="label">4. Сервис-команды</span>
+    <div class="phone">
+      <header>
+        <div class="avatar">T</div>
+        <div class="meta">
+          <div class="name">two_brains</div>
+          <div class="sub">bot</div>
+        </div>
+        <div class="icons">🔍 ⋮</div>
+      </header>
+      <div class="chat">
+        <div class="day">May 4, 2026</div>
+
+        <div class="bubble out cmd">/status<span class="stamp">20:01 <span class="check">✓✓</span></span></div>
+        <div class="bubble in">✅ upstream: ok
+uptime: 5520s<span class="stamp">20:01</span></div>
+
+        <div class="bubble out cmd">/usage<span class="stamp">20:16 <span class="check">✓✓</span></span></div>
+        <div class="bubble in">📊 Квота
+Использовано сегодня: 0
+Дневной лимит:        100
+Осталось:              100<span class="stamp">20:16</span></div>
+
+        <div class="bubble out cmd">/run create snake.py with a snake game<span class="stamp">20:15 <span class="check">✓✓</span></span></div>
+        <div class="bubble in">✅ Готово.
+Создал файл: <code>snake.py</code>
+Лежат в: workspace/anonymous/<span class="stamp">20:15</span></div>
+      </div>
+      <div class="composer">📎 <span class="input">Message</span> 😊 🎤</div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
